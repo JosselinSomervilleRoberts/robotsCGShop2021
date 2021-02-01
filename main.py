@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
 Created on Fri Dec 18 21:38:35 2020
-
 @author: olivi
 """
 import numpy as np
@@ -263,8 +262,11 @@ class Pilote :
         Il renvoie le pas choisi en format tuple'''
         p = self.p
         cases_prises_relat = [ (r[0]-p[0],r[1]-p[1], r[2]) for r in cases_prises]
-        poids_direction = [ [i,0.] for i in range(5)]
+        poids_direction = [ 0 for i in range(5)]
+        
+        
         decisions_possibles = [ (elt[0]-p[0],elt[1]-p[1]) for elt in self.voisins(p)] + [(0,0)]
+
         
         sameDir = []
         
@@ -295,9 +297,9 @@ class Pilote :
         for c in cases_prises_proches :
             for d in decisions_possibles :
                 if dist(c,d)==1:
-                    poids_direction[index(d)][1]-=2.*REPULSION
+                    poids_direction[index(d)]-=2.*REPULSION
                 if dist(c,d)==2:
-                    poids_direction[index(d)][1]-=1.*REPULSION
+                    poids_direction[index(d)]-=1.*REPULSION
         
         for d in decisions_possibles :
             d_abs = (p[0]+d[0],p[1]+d[1])
@@ -308,26 +310,25 @@ class Pilote :
             if d in sameDir:
                 delta += POISSON
             """
-            poids_direction[index(d)][1] += delta
+            poids_direction[index(d)] += delta
         
+        interdits = []
         for i in reversed(range(len(poids_direction))) :
             a = directions[i]
             if (a not in decisions_possibles) or (a in cases_prises_proches) :
-                poids_direction.pop(i)
+                poids_direction[i]=0
+                interdits.append(i)
         
-        mini = min([elt[1] for elt in poids_direction])
+        mini = min(poids_direction)
         for i in range(len(poids_direction)):
-            poids_direction[i][1] += ALEATOIRE -mini
-        somme = sum([elt[1] for elt in poids_direction])
-        tirage = somme*np.random.random()
-        while len(poids_direction)>0:
-            if poids_direction[0][1]>tirage:
-                pas = directions[int(poids_direction[0][0])]
-                self.p = (self.p[0]+pas[0],self.p[1]+pas[1])
-                self.lastDir = directions_utils[poids_direction[0][0]]
-                return self.lastDir
-            tirage -= poids_direction[0][1]
-            poids_direction.pop(0)
+            if i not in interdits :
+                poids_direction[i] += ALEATOIRE -mini
+        somme = sum([elt for elt in poids_direction])
+        poids_direction=[elt/somme for elt in poids_direction]
+        pas = random.choices(directions, weights=poids_direction, k=1)[0]
+        self.p = (self.p[0]+pas[0],self.p[1]+pas[1])
+        self.lastDir = directions_utils[index(pas)]
+        return self.lastDir
         print("Erreur !")
         
 
@@ -400,7 +401,6 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
                     poissonMoy=0.2, poissonVariation=0.1):
     """
     Recherche une solution optimale (en makespan ou distance)
-
     Parameters
     ----------
     optimizeMakespan : TYPE, optional
@@ -414,11 +414,9 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
     timeMax : TYPE, optional
         DESCRIPTION. The default is 10. (en secondes)
         Temps utilisé pour chercher les solutions
-
     Returns
     -------
     None.
-
     """
     
     s = input("Nom de l'enregistrement du fichier ? (\"No\" pour ne pas sauvegarder)\n")
