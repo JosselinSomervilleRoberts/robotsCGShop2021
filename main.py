@@ -9,6 +9,13 @@ import time
 from cgshop2021_pyutils import Instance, InstanceDatabase
 from cgshop2021_pyutils import Solution, SolutionStep, SolutionZipWriter, Direction
 from cgshop2021_pyutils import ZipSolutionIterator, validate, ZipReaderError, InvalidSolutionError, SolutionEncodingError
+from copy import copy, deepcopy
+import random
+import os
+import zipfile
+import shutil
+import glob
+from datetime import datetime
 
 OBS = -2
 NORD = (0,1)
@@ -41,7 +48,10 @@ def index(d):
 def dist(t1,t2):
     '''La distance de la valeur absolue entre deux tuples'''
     return abs(t1[0]-t2[0])+abs(t1[1]-t2[1])
+
+
 class Pilote :
+    
     def voisins(self,case):
         '''Renvoie les voisins sans obstacles de la case'''
         n = self.n
@@ -57,15 +67,14 @@ class Pilote :
             L.append((x,y+1))
         return L
     
-    def __init__(self, n, cible,depart,obstacles):
+    def __init__(self, index, n, cible,depart,T):
         self.depart = depart
         self.p = depart #La position actuelle du robot
+        self.index = index
         self.cible = cible #La ou le robot doit aller
         self.n = n
-        self.T = np.zeros((n,n),dtype=int)-1
-        self.dernier_pas =ZERO
-        for o in obstacles :
-            self.T[o] = OBS
+        self.T = T
+        self.dernier_pas = ZERO
         #Le tableau T est un tableau d'entiers
         #T[i,j] est le nombre minimal de pas qu'il faut faire en partant de 
         # (i,j) pour aller à la cible en évitant les obstacles (mais sans autres robots)
@@ -154,109 +163,196 @@ class Pilote :
             poids_direction.pop(0)
         print("Erreur !")
         
-marge = 5
-
-idb = InstanceDatabase("datasets.zip")
-
-i= idb["small_001_10x10_40_30"]
-#i= idb["medium_free_013_50x50_50_1250"]
-taille = 0
-for r in range(i.number_of_robots):
-    print("Robot", r, "starts at", i.start_of(r)," and has to go to ", i.target_of(r))
-    taille = max(taille, max(i.start_of(r)))
-    taille = max(taille, max(i.target_of(r)))
-taille +=1
-print(taille)
-
-taille+=2*marge
-
-for o in i.obstacles:
-    print(o, "is blocked")
-        
-print(i.number_of_robots)
 
 
 
 
+def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistance = 10000, timeMax = 10,
+                    marge = 5, repulsionMoy=0.3, repulsionVariation=0.1,
+                    aleatoireMoy=0.2, aleatoireVariation=0.1,
+                    deterministeMoy=30, deterministeVariation=12):
+    """
+    Recherche une solution optimale (en makespan ou distance)
 
-solution = None 
+    Parameters
+    ----------
+    optimizeMakespan : TYPE, optional
+        DESCRIPTION. The default is True. True -> optimiser le makespan / False -> optimiser la distance
+    maxMakespan : TYPE, optional
+        DESCRIPTION. The default is 200. Valeur maximale pour le makespan (si on optimise par rapport au makespan)
+        Si on dépasse cette valeur, on recommence
+    maxDistance : TYPE, optional
+        DESCRIPTION. The default is 10000. Valeur maximale pour la distance (si on optimise par rapport à la distance)
+        Si on dépasse cette valeur, on recommence
+    timeMax : TYPE, optional
+        DESCRIPTION. The default is 10. (en secondes)
+        Temps utilisé pour chercher les solutions
 
-pilotes = []
-obstacles_decales = [ (a+marge,b+marge) for (a,b) in i.obstacles]
-for r in range(i.number_of_robots):
-        pilotes.append(Pilote(taille,(i.target_of(r)[0]+marge,i.target_of(r)[1]+marge) ,(i.start_of(r)[0]+marge,i.start_of(r)[1]+marge),obstacles_decales))
-print("Pilotes initialisés")
-mini = 200
-b = 0
-t = time.time()
-while True :
-    solution = Solution(i)
-    a = 0
-    makespan = 0
-    [ elt.reset() for elt in pilotes]
-    pr,pa,pd = 0.3*(0.8+0.4*np.random.random()), 0.2*(0.8+0.4*np.random.random()) ,30*(1+0.4*np.random.random())
-    [elt.params(pr,pa,pd) for elt in pilotes]
+    Returns
+    -------
+    None.
+
+    """
     
-    while a<i.number_of_robots and makespan<mini:
-        step = SolutionStep()
-        a = 0
-        stop = True
-        cases_prises = [elt.p for elt in pilotes]
-        for r in range(i.number_of_robots) :
-            monPilote = pilotes[r]
-            if monPilote.p == monPilote.cible: 
-                a+=1
-                #print("Le robot "+str(r)+" est arrivé à destination")
-                pp= Direction.WAIT
-            else :
-                pp = monPilote.pas_probabiliste(cases_prises)
-                cases_prises.append(monPilote.p)
-            step[r] = pp
-
+    s = input("Nom de l'enregistrement du fichier ? (\"No\" pour ne pas sauvegarder)\n")
     
-        makespan +=1
-        solution.add_step(step)
-    b+=1
-    if makespan <mini :
-        print("Trouvé une solution au "+str(b)+"ième essai avec un makespan de "+str(solution.makespan))
-        #print("Makespan:", solution.makespan)
+    # Chargement du fichier
+    idb = InstanceDatabase("datasets.zip")
 
-        #print("r = "+str(pr)+", a ="+str(pa)+" d="+str(pd))
-        mini = min(mini,solution.makespan)
-        '''
-        with SolutionZipWriter("out"+str(solution.makespan)+".zip") as szw:
-            szw.add_solution(solution)
-        '''
+    i= idb[file]
+    taille = 0
+    for r in range(i.number_of_robots):
+        taille = max(taille, max(i.start_of(r)))
+        taille = max(taille, max(i.target_of(r)))
+    taille +=1
+    
+    # On rajoute la marge
+    taille += 2*marge
+    print(taille)
+    
+    
+    
+    # Recherche de la solution
+    solution = None 
+    
+    pilotes = []
+    obstacles_decales = [ (a+marge,b+marge) for (a,b) in i.obstacles]
+    T = np.zeros((taille,taille),dtype=int)-1
+    for o in obstacles_decales :
+        T[o] = OBS
         
-        try:
-            validate(solution)
-            print("solution validée par cgshop2021_pyutils.validate")
-        except ZipReaderError as zre:
-            print("Bad Zip:", zre)
-        except InvalidSolutionError as ise:
-            print("Bad Solution:", ise)
-        except SolutionEncodingError as see:
-            print("Bad Solution File:", see)
+    for r in range(i.number_of_robots):
+        pilotes.append(Pilote(r, taille,(i.target_of(r)[0]+marge,i.target_of(r)[1]+marge) ,(i.start_of(r)[0]+marge,i.start_of(r)[1]+marge), copy(T)))
+    
+    print("Pilotes initialisés")
+    makespanMini = maxMakespan
+    distanceMini = maxDistance
+    nbAmeliorations = 0
+    nbEssais = 0
+    
+    tStart = time.time()
+    while time.time() - tStart < timeMax:
+        solution = Solution(i)
+        
+        # Nombre de robots arrivés à leur cible
+        nbArrives = 0
+        
+        # MakeSpan et distance
+        makespan = 0
+        distance = 0
+        
+        # On met des params aléatoires
+        [ elt.reset() for elt in pilotes]
+        pr = repulsionMoy + repulsionVariation *(-1 +2*np.random.random())
+        pa = aleatoireMoy + aleatoireVariation *(-1 +2*np.random.random())
+        pd = deterministeMoy + deterministeVariation *(-1 +2*np.random.random())
+        [elt.params(pr,pa,pd) for elt in pilotes]
+        
+        # Variables utilisées à chaque step
+        nbArrives = 0
+        nbRobotsTotal = i.number_of_robots
+        pilotesArrives = []
+        pilotesActifs = [p for p in pilotes]
+        cases_prises = [elt.p for elt in pilotes] # Cases inaccessibles
+        
+        while (nbArrives < nbRobotsTotal) and ((optimizeMakespan and makespan<makespanMini) or (not(optimizeMakespan) and distance<distanceMini)):
+            step = SolutionStep()
+            stepIsEmpty = True # Booléen qui nous permettra de ne pas ajouter des steps inutiles
+              
+            nbArrives = len(pilotesArrives)
+            
+            # Anciennes positions des robots, à enlever au prochain pas
+            caseToRemove = []
+            
+            random.shuffle(pilotesActifs)
+            for monPilote in pilotesActifs:
+                pp = None # Action du robot (WAIT, SOUTH, NORTH, WEST, EAST)
+                if monPilote.p == monPilote.cible: 
+                    nbArrives += 1
+                    #print("Le robot "+str(r)+" est arrivé à destination")
+                    pp = Direction.WAIT
+                    pilotesArrives.append(monPilote)
+                    pilotesActifs.remove(monPilote)
+                else :
+                    previousPosPilote = monPilote.p
+                    pp = monPilote.pas_probabiliste(cases_prises)
+                    if pp != Direction.WAIT: # Si le robot bouge, le pas n'est pas inutile
+                        stepIsEmpty = False
+                        distance += 1
+                        caseToRemove.append(previousPosPilote)
+                        cases_prises.append(monPilote.p)
+                step[monPilote.index] = pp
+                
+                
+            if not(stepIsEmpty):
+                makespan += 1
+                solution.add_step(step)
+                
+                # On enlève les anciennes positions des robots
+                for pos in caseToRemove:
+                    cases_prises.remove(pos)
+
+
+        # On est sortis de la boucle
+        nbEssais += 1
+        
+        # SI ON ARRIVE ICI C'EST QU'ON A TROUVE UNE SOLUTION
+        if ((optimizeMakespan and makespan<makespanMini) or (not(optimizeMakespan) and distance<distanceMini)):
+            nbAmeliorations += 1
+            print("")
+            print("Trouvé une solution au "+str(nbEssais)+"ième essai | makespan = "+str(solution.makespan) + "   | distance = " + str(solution.total_moves))
+
+            if optimizeMakespan:
+                makespanMini = solution.makespan
+            else:
+                distanceMini = solution.total_moves
+            
+            """
+            with SolutionZipWriter("outJoss"+str(solution.makespan)+".zip") as szw:
+                szw.add_solution(solution)
+            """
+            
+            if s.lower() != "no":
+                # On crée le dossier s'il nexiste pas
+                if not os.path.exists('solutions/' + file):
+                    os.makedirs('solutions/' + file)
+                if not os.path.exists('solutions/' + file + "/zip"):
+                    os.makedirs('solutions/' + file + "/zip")
+                    
+                    
+                filename = str(datetime.now()).split(".")[0].replace(" ", "_").replace("-", "_").replace(":", "_") + "_" + str(nbAmeliorations) + "___" + s 
+                save_name = 'solutions/' + file + '/zip/' + 'out_' + filename + '.zip'#'solutions/' + file + "/zip/" + filename + ".zip"
+                with SolutionZipWriter(save_name) as szw:
+                    szw.add_solution(solution)
+                    
+                
+                with zipfile.ZipFile(save_name, 'r') as zip_ref:
+                    zip_ref.extractall("")
+        
+                list_of_files = glob.glob('solutions/*.json') # * means all if need specific format then *.csv
+                latest_file = max(list_of_files, key=os.path.getctime).replace("\\", "/")
+                shutil.move(latest_file, "solutions/" + file + "/" + filename + ".json")
+                print("Saved to :", "solutions/" + file + "/" + filename + ".json")
+            else:
+                print("File not saved")
+                
+            try:
+                validate(solution)
+                print("solution validée par cgshop2021_pyutils.validate")
+            except ZipReaderError as zre:
+                print("Bad Zip:", zre)
+            except InvalidSolutionError as ise:
+                print("Bad Solution:", ise)
+            except SolutionEncodingError as see:
+                print("Bad Solution File:", see)
+            
+              
+                
 
             
 
 
 
 
-    
-'''
 
-n = 5
-cible = (2,3)
-depart = (0,0)
-obstacles = [(0,2),(1,2),(2,2),(3,2)]
-monPilote = Pilote(n,cible,depart,obstacles)
-print(monPilote.T.transpose())
-
-while monPilote.distance()!=0:
-    print("Le robot est en "+str(monPilote.p))
-    monPilote.p = monPilote.prochainspas()[0]
-
-print("Le robot est arrivé à destination")
-
-'''
+trouverSolution("small_000_10x10_20_10.instance", optimizeMakespan = True, timeMax=300)

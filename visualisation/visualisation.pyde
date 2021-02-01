@@ -9,7 +9,7 @@ start_y = -5
 nx = 20
 ny = 20
 map_file = '../datasets/small_000_10x10_20_10.instance.json'
-sol_file = '../solutions/small_000_10x10_20_10_SOLUTION_SUM124_MS25.json'
+sol_file = '../solutions/small_000_10x10_20_10.instance/best_makespan.json'
 nbInterMoves = 10
 # ================================================== #
 
@@ -25,18 +25,31 @@ moveToNextStep = False
 nbInterCurrent = 0
 automatique = False
 
+makespan = None
+total_distance = None
+distance = 0
+actual_makespan = 0
+inc_nbIntermoves = 0
+
 
     
     
 def getPosInitialRobots():
     global data, pos_robots, inc_robots
-    pos_robots = data['starts']
+    pos_robots = [[elt[0], elt[1]] for elt in data['starts']]
     inc_robots = [[0,0] for k in range(len(pos_robots))]
     
     
 def loadSteps():
-    global data_sol, steps
+    global data_sol, steps, makespan, total_distance, actual_makespan, distance
     steps = data_sol['steps']
+    makespan = len(steps)
+    distance = 0
+    actual_makespan = 0
+    
+    total_distance = 0
+    for s in steps:
+        total_distance += len(s.keys())
     
     
 def nextStep():
@@ -65,18 +78,26 @@ def nextStep():
     
     
 def deplacerRobots():
-    global pos_robots, inc_robots, nbInterMoves
+    global pos_robots, inc_robots, nbInterMoves, distance, actual_makespan
+    
+    actual_makespan += 1/float(nbInterMoves)
     
     for i in range(len(pos_robots)):
         pos_robots[i][0] += inc_robots[i][0] / float(nbInterMoves)
         pos_robots[i][1] += inc_robots[i][1] / float(nbInterMoves)
+        
+        if(inc_robots[i] != [0,0]): 
+            distance += 1/float(nbInterMoves)
     
     
 def showRobots():
     global pos_robots, nx, ny, s, start_x, start_y
     
     i = 0
-    textAlign(CENTER, CENTER) 
+    textSize(int(s/2.0))
+    textAlign(CENTER, CENTER)
+    stroke(0,0,0)
+    strokeWeight(1)
     for elt in pos_robots:
         i+=1
         x, y = elt[0], elt[1]
@@ -93,7 +114,10 @@ def showTargets():
     global data, nx, ny, s, start_x, start_y
     
     i = 0
-    textAlign(CENTER, CENTER) 
+    textSize(int(s/2.0))
+    textAlign(CENTER, CENTER)
+    stroke(0,0,0)
+    strokeWeight(1)
     for elt in data['targets']:
         i+=1
         x, y = elt[0], elt[1]
@@ -116,6 +140,7 @@ def draw_grid():
         rect(affX*s, affY*s, s, s)
     
     stroke(0,0,0)
+    strokeWeight(1)
     for i in range(nx+1):
         line(i*s, 0, i*s, ny*s)
         
@@ -124,17 +149,41 @@ def draw_grid():
         
         
 def affichage():
+    global size_x, size_y, makespan, steps, total_distance, distance, pos_robots, actual_makespan
     background(200,200,200)
     showTargets()
     showRobots()
     draw_grid()
+    
+    fill(0,0,0)
+    rect(0, size_y - 100, size_x, 100)
+    
+    t = int(size_x/16.0)
+    fill(255,100,100)
+    stroke(200,50,50)
+    strokeWeight(3)
+    
+    rect(t, size_y - 80, 4*t, 60)
+    rect(6*t, size_y - 80, 4*t, 60)
+    rect(11*t, size_y - 80, 4*t, 60)
+    
+    fill(0,0,0)
+    textAlign(CENTER, CENTER)
+    textSize(int(size_x/35.0))
+    text("Nombre robots", t, size_y - 80, 4*t, 30)
+    text(str(len(pos_robots)), t, size_y - 50, 4*t, 25)
+    text("Makespan", 6*t, size_y - 80, 4*t, 30)
+    text(str(round(actual_makespan,1)) + " / " + str(makespan), 6*t, size_y - 50, 4*t, 25)
+    text("Distance", 11*t, size_y - 80, 4*t, 30)
+    text(str(ceil(distance)) + " / " + str(total_distance), 11*t, size_y - 50, 4*t, 25)
+    
     
     
 def setup():
     global data, nx, ny, s, size_x, size_y
     
     size(size_x, size_y)
-    s = min(int(size_x/float(nx)), int(size_y/float(ny)))
+    s = min(int(size_x/float(nx)), int(size_y-100/float(ny)))
     
     loadData()
     getPosInitialRobots()
@@ -143,13 +192,16 @@ def setup():
     
     
 def draw():
-    global moveToNextStep, nbInterCurrent, automatique
+    global moveToNextStep, nbInterCurrent, automatique, nbInterMoves, inc_nbIntermoves
     if moveToNextStep:
         nbInterCurrent += 1
         deplacerRobots()
         affichage()
         
         if nbInterCurrent == nbInterMoves:
+            nbInterMoves += inc_nbIntermoves
+            nbInterMoves = max(1, nbInterMoves)
+            inc_nbIntermoves = 0
             if automatique and len(steps) > 0:
                 moveToNextStep = True
                 nbInterCurrent = 0
@@ -173,7 +225,8 @@ def loadData():
         
         
 def keyPressed():
-    global moveToNextStep, steps, nbInterCurrent, automatique
+    global moveToNextStep, steps, nbInterCurrent, automatique, inc_nbIntermoves
+    print(keyCode)
     if keyCode == 10:
         automatique = not(automatique)
         if not(moveToNextStep) and len(steps) > 0:
@@ -185,3 +238,15 @@ def keyPressed():
             moveToNextStep = True
             nbInterCurrent = 0
             nextStep()
+            
+    if keyCode == 82: #r
+        if len(steps) == 0:
+            getPosInitialRobots()
+            loadSteps()
+            affichage()
+            automatique = False
+            
+    if keyCode == 65: #a
+        inc_nbIntermoves -= 1
+    if keyCode == 83: #s
+        inc_nbIntermoves += 1
