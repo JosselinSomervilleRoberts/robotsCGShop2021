@@ -9,7 +9,7 @@ start_y = -5
 nx = 20
 ny = 20
 map_file = '../datasets/small_free_001_10x10_40_40.instance.json'
-sol_file = '../solutions/small_free_001_10x10_40_40_SOLUTION_SUM1095_MS200.json'
+sol_file = '../solutions/small_free_001_10x10_40_40.instance/2021_02_01_16_33_42_27___testRecalculer.json'
 nbInterMoves = 10
 # ================================================== #
 
@@ -30,6 +30,8 @@ total_distance = None
 distance = 0
 actual_makespan = 0
 inc_nbIntermoves = 0
+targetsOnTop = False
+transparence = True
 
 
     
@@ -91,7 +93,7 @@ def deplacerRobots():
     
     
 def showRobots():
-    global pos_robots, nx, ny, s, start_x, start_y, data
+    global pos_robots, nx, ny, s, start_x, start_y, data, transparence
     
     i = -1
     textSize(int(s/2.0))
@@ -103,7 +105,7 @@ def showRobots():
         x, y = elt[0], elt[1]
         affX = x - start_x
         affY = ny -1 - y + start_y
-        fill(0,255,0,127)
+        fill(0,255,0,255-127*transparence)
         
         if data['targets'][i][0] == int(round(x,0)) and data['targets'][i][1] == int(round(y,0)):
             fill(255,0,255)
@@ -114,7 +116,7 @@ def showRobots():
         
         
 def showTargets():
-    global data, nx, ny, s, start_x, start_y
+    global data, nx, ny, s, start_x, start_y, transparence, pos_robots
     
     i = -1
     textSize(int(s/2.0))
@@ -126,7 +128,10 @@ def showTargets():
         x, y = elt[0], elt[1]
         affX = x - start_x
         affY = ny -1 - y + start_y
-        fill(255,0,0)
+        fill(255,0,0, 255 - 127*transparence)
+        
+        if int(round(pos_robots[i][0],0)) == x and int(round(pos_robots[i][1],0)) == y:
+            fill(255,0,255)
         rect(affX*s, affY*s, s, s)
         fill(0,0,0)
         text(str(i), affX*s, affY*s, s, s)
@@ -152,11 +157,17 @@ def draw_grid():
         
         
 def affichage():
-    global size_x, size_y, makespan, steps, total_distance, distance, pos_robots, actual_makespan
+    global size_x, size_y, makespan, steps, total_distance, distance, pos_robots, actual_makespan, targetsOnTop
     background(200,200,200)
-    showTargets()
-    showRobots()
-    draw_grid()
+    
+    if targetsOnTop:
+        showRobots()
+        showTargets()
+        draw_grid()
+    else:
+        showTargets()
+        showRobots()
+        draw_grid()
     
     fill(0,0,0)
     rect(0, size_y - 100, size_x, 100)
@@ -228,7 +239,7 @@ def loadData():
         
         
 def keyPressed():
-    global moveToNextStep, steps, nbInterCurrent, automatique, inc_nbIntermoves, nbInterMoves
+    global moveToNextStep, steps, nbInterCurrent, automatique, inc_nbIntermoves, nbInterMoves, targetsOnTop, transparence
     print(keyCode)
     if keyCode == 10:
         automatique = not(automatique)
@@ -260,3 +271,13 @@ def keyPressed():
             nbInterMoves += 1
         else:
             inc_nbIntermoves += 1
+            
+    if keyCode == 90: #Z
+        targetsOnTop = not(targetsOnTop)
+        if not(moveToNextStep):
+            affichage()
+            
+    if keyCode == 69: #E
+        transparence = not(transparence)
+        if not(moveToNextStep):
+            affichage()

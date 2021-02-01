@@ -110,7 +110,9 @@ class Pilote :
         self.p =self.depart
         self.dernier_pas =ZERO
         self.T = T
+        self.dicFils = {}
         self.calculerChemin()
+        
         
     def effacerChemin(self, obs):
         #print("effacerChemin")
@@ -189,7 +191,48 @@ class Pilote :
     def ajouterObstacle(self, obs):
         self.T[obs] = OBS
         self.effacerChemin(obs)
-        #self.calculerChemin()
+        return
+        
+        for x in range(len(self.T)):
+            for y in range(len(self.T[0])):
+                if self.T[x][y] >= 0:
+                    self.T[x][y] = -1
+        
+        self.dicFils = {}
+        self.calculerChemin()
+        
+        
+    def ajouterObstacles(self, liste_obs, recalculer=True):
+        for obs in liste_obs:
+            self.T[obs] = OBS
+            #self.effacerChemin(obs)
+        #return
+        
+        if recalculer:
+            for x in range(len(self.T)):
+                for y in range(len(self.T[0])):
+                    if self.T[x][y] >= 0:
+                        self.T[x][y] = -1
+            
+            self.dicFils = {}
+            self.calculerChemin()
+        
+        
+    def enleverObstacles(self, liste_obs, recalculer=True):
+        for obs in liste_obs:
+            self.T[obs] = -1
+            #self.effacerChemin(obs)
+        #return
+        
+        if recalculer:
+            for x in range(len(self.T)):
+                for y in range(len(self.T[0])):
+                    if self.T[x][y] >= 0:
+                        self.T[x][y] = -1
+            
+            self.dicFils = {}
+            self.calculerChemin()
+        
         
     def distance(self):
         '''En combien de pas le robot peut-il arriver à destination'''
@@ -289,6 +332,61 @@ class Pilote :
 
 
 
+def calculPriorites(pilotes):
+    pasEncoreArrives = [(p.cible, p.index) for p in pilotes]
+    groupes = []
+    
+    while len(pasEncoreArrives) > 0:
+        groupes.append([])
+        onlyCasesArrives = [elt[0] for elt in pasEncoreArrives]
+        [pilotes[elt[1]].ajouterObstacles(onlyCasesArrives) for elt in pasEncoreArrives]
+        toRemove = []
+        for elt in pasEncoreArrives:
+            (case_arrivee, index) = elt
+            if pilotes[index].T[(0,0)] >= 0: #pilotes[index].p
+                groupes[-1].append(index)
+                toRemove.append(elt)
+                
+        for elt in toRemove:
+            pasEncoreArrives.remove(elt)
+            
+        [pilotes[elt[1]].enleverObstacles([elt[0] for elt in toRemove], recalculer=False) for elt in pasEncoreArrives]
+            
+    return groupes
+
+
+
+def calculPriorites2(pilotes):
+    pasEncoreArrives = [p.index for p in pilotes]
+    dejaArrives = []
+    obstacles = []
+    groupes = []
+    
+    while len(pasEncoreArrives) > 0:
+        groupes.append([])
+        [pilotes[index].enleverObstacles(obstacles, recalculer=False) for index in pasEncoreArrives]
+        obstacles = [pilotes[index].cible for index in pasEncoreArrives] + [pilotes[index].p for index in dejaArrives]
+        [pilotes[index].ajouterObstacles(obstacles, recalculer=True) for index in pasEncoreArrives]
+        ajout = False
+        
+        for index in copy(pasEncoreArrives):
+            if pilotes[index].T[pilotes[index].p] >= 0: #pilotes[index].p
+                groupes[-1].append(index)
+                pasEncoreArrives.remove(index)
+                dejaArrives.append(index)
+                ajout = True
+                
+        if not(ajout):
+            print("IMPOSSIBLE")
+            print(groupes)
+            return None
+                
+        
+            
+    return groupes
+                
+            
+
 
 def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistance = 10000, timeMax = 10,
                     marge = 5, repulsionMoy=0.3, repulsionVariation=0.1,
@@ -359,6 +457,7 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
         pilotes.append(Pilote(r, taille,(i.target_of(r)[0]+marge,i.target_of(r)[1]+marge) ,(i.start_of(r)[0]+marge,i.start_of(r)[1]+marge), copy(T)))
     
     print("Pilotes initialisés")
+    print(calculPriorites2(pilotes))
     makespanMini = maxMakespan
     distanceMini = maxDistance
     nbAmeliorations = 0
@@ -439,7 +538,7 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
         nbEssais += 1
         print(nbArrives)
         # SI ON ARRIVE ICI C'EST QU'ON A TROUVE UNE SOLUTION
-        if ((optimizeMakespan and makespan<makespanMini) or (not(optimizeMakespan) and distance<distanceMini)):
+        if True:#((optimizeMakespan and makespan<makespanMini) or (not(optimizeMakespan) and distance<distanceMini)):
             nbAmeliorations += 1
             print("")
             print("Trouvé une solution au "+str(nbEssais)+"ième essai | makespan = "+str(solution.makespan) + "   | distance = " + str(solution.total_moves))
@@ -489,10 +588,7 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
                 print("Bad Solution File:", see)
     
     #print(nbArrives)
-    """
-    with SolutionZipWriter("out8.zip") as szw:
-        szw.add_solution(solution)
-    """
+    
     
     
     
