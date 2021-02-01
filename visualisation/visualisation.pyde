@@ -8,8 +8,8 @@ start_x = -5
 start_y = -5
 nx = 20
 ny = 20
-map_file = '../datasets/small_000_10x10_20_10.instance.json'
-sol_file = '../solutions/small_000_10x10_20_10.instance/2021_02_01_03_24_47_2___test_parallel_3.json'
+map_file = '../datasets/small_free_001_10x10_40_40.instance.json'
+sol_file = '../solutions/small_free_001_10x10_40_40_SOLUTION_SUM614_MS50.json'
 nbInterMoves = 10
 # ================================================== #
 
@@ -91,7 +91,7 @@ def deplacerRobots():
     
     
 def showRobots():
-    global pos_robots, nx, ny, s, start_x, start_y
+    global pos_robots, nx, ny, s, start_x, start_y, data
     
     i = -1
     textSize(int(s/2.0))
@@ -104,6 +104,9 @@ def showRobots():
         affX = x - start_x
         affY = ny -1 - y + start_y
         fill(0,255,0,127)
+        
+        if data['targets'][i][0] == int(round(x,0)) and data['targets'][i][1] == int(round(y,0)):
+            fill(255,0,255)
         rect(affX*s, affY*s, s, s)
         fill(0,0,0)
         text(str(i), affX*s, affY*s, s, s)

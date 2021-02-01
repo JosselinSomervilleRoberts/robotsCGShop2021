@@ -95,9 +95,25 @@ class Pilote :
         self.a = 0.2
         self.d = 4
         self.poisson = 0.2
-    def reset(self):
+        
+    def reset(self, T):
         self.p =self.depart
         self.dernier_pas =ZERO
+        self.T = T
+        L = [self.cible]
+        self.T[self.cible]=0
+        while len(L)>0 :
+            c = L[0]
+            V = self.voisins(c)
+            for v in V :
+                if self.T[v]==-1 :
+                    L.append(v)
+                    self.T[v]=self.T[c]+1
+            L.pop(0)
+        
+    def ajouterObstacle(self, obs):
+        self.T[obs] = OBS
+        
     def distance(self):
         '''En combien de pas le robot peut-il arriver à destination'''
         return self.T[self.p]
@@ -110,11 +126,13 @@ class Pilote :
             if self.T[v]==self.T[self.p]-1:
                 R.append(v)
         return  R
+    
     def params(self,r,a,d, poisson):
         self.r = r
         self.a = a
         self.d = d
         self.poisson = poisson
+        
     def pas_probabiliste(self,cases_prises=[]):
         REPULSION = self.r
         ALEATOIRE = self.a
@@ -236,11 +254,21 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
     taille +=1
     
     # On rajoute la marge
+    tailleBox = taille
     taille += 2*marge
     print(taille)
     
     
+    dim = 1
+    groups = [[], []]
     
+    """
+    for robot in pilotes:
+        for ix in range(2):
+            for iy in range(2):
+                if int(ix*tailleBox/2.0) <= robot.depart[0] < int((ix*tailleBox/2.0)
+    
+    """
     # Recherche de la solution
     solution = None 
     
@@ -271,7 +299,7 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
         distance = 0
         
         # On met des params aléatoires
-        [ elt.reset() for elt in pilotes]
+        [ elt.reset(T.copy()) for elt in pilotes]
         pr = repulsionMoy + repulsionVariation *(-1 +2*np.random.random())
         pa = aleatoireMoy + aleatoireVariation *(-1 +2*np.random.random())
         pd = deterministeMoy + deterministeVariation *(-1 +2*np.random.random())
@@ -304,6 +332,9 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
                     pp = Direction.WAIT
                     pilotesArrives.append(monPilote)
                     pilotesActifs.remove(monPilote)
+                    
+                    for p in pilotes:
+                        p.ajouterObstacle(monPilote.p)
                 else :
                     previousPosPilote = monPilote.p
                     pp = monPilote.pas_probabiliste(cases_prises)
@@ -380,8 +411,10 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
             except SolutionEncodingError as see:
                 print("Bad Solution File:", see)
                 
-    with SolutionZipWriter("out.zip") as szw:
-                    szw.add_solution(solution)
+    
+    with SolutionZipWriter("out2.zip") as szw:
+        szw.add_solution(solution)
+    
             
               
                 
@@ -391,6 +424,6 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
 
 
 
-
-trouverSolution("small_free_001_10x10_40_40.instance", maxMakespan = 500, optimizeMakespan = True,
-                timeMax=20, deterministeMoy=6, deterministeVariation=4)
+#"small_000_10x10_20_10.instance"
+trouverSolution("small_free_001_10x10_40_40.instance", maxMakespan = 50, optimizeMakespan = True,
+                timeMax=2)
