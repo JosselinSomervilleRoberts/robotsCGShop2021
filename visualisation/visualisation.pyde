@@ -8,8 +8,8 @@ start_x = -5
 start_y = -5
 nx = 20
 ny = 20
-map_file = '../datasets/small_free_001_10x10_40_40.instance.json'
-sol_file = '../solutions/small_free_001_10x10_40_40.instance/2021_02_01_16_33_42_27___testRecalculer.json'
+map_file = '../datasets/small_001_10x10_40_30.instance.json'
+sol_file = '../solutions/small_001_10x10_40_30.instance/2021_02_01_18_33_58_3___engorgement.json'
 nbInterMoves = 10
 # ================================================== #
 

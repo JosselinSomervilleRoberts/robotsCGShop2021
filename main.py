@@ -117,8 +117,9 @@ class Pilote :
     def effacerChemin(self, obs):
         #print("effacerChemin")
         L = [fils for fils in self.dicFils[obs]]
+        self.dicFils[obs] = []
         aRecalculer = []
-        #Tbefore = np.copy(self.T)
+        Tbefore = np.copy(self.T)
         while len(L) > 0:
             c = L.pop(0)
             aRecalculer.append(c)
@@ -127,11 +128,11 @@ class Pilote :
             self.dicFils[c] = []
         
         
-        #Tmiddle = np.copy(self.T)
+        Tmiddle = np.copy(self.T)
         probleme = self.recalculerChemin(aRecalculer)
         
-        """
-        if probleme:
+        
+        if False:#probleme:
             print("T before:")
             print(Tbefore)
             print("OBS=", obs)
@@ -141,7 +142,7 @@ class Pilote :
             print(self.T)
             print("\n\n")
             time.sleep(1)
-        """
+        
         
     def recalculerChemin(self, aRecalculer):
         L = copy(aRecalculer)
@@ -175,7 +176,7 @@ class Pilote :
                 else:
                     if not(c in vaEtreRefait):
                         vaEtreRefait.append(c)
-                        self.T[c] = INFINITY
+                        self.T[c] = -1
                     else:
                         #print("hey")
                         pass
@@ -184,7 +185,7 @@ class Pilote :
             else:
                 #print("Robot " + str(self.index) + " bloqué")
                 pass
-        return False#len(vaEtreRefait) > 0
+        return len(vaEtreRefait) > 0
             
 
         
@@ -361,6 +362,7 @@ def calculPriorites2(pilotes):
     dejaArrives = []
     obstacles = []
     groupes = []
+    distance = 0
     
     while len(pasEncoreArrives) > 0:
         groupes.append([])
@@ -371,6 +373,7 @@ def calculPriorites2(pilotes):
         
         for index in copy(pasEncoreArrives):
             if pilotes[index].T[pilotes[index].p] >= 0: #pilotes[index].p
+                distance += pilotes[index].T[pilotes[index].p]
                 groupes[-1].append(index)
                 pasEncoreArrives.remove(index)
                 dejaArrives.append(index)
@@ -378,11 +381,13 @@ def calculPriorites2(pilotes):
                 
         if not(ajout):
             print("IMPOSSIBLE")
+            print(pasEncoreArrives)
+            print("\n")
             print(groupes)
             return None
                 
         
-            
+    print("Distance = ", distance)
     return groupes
                 
             
@@ -489,7 +494,11 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
         pilotesActifs = [p for p in pilotes]
         cases_prises = [elt.p for elt in pilotes] # Cases inaccessibles
         
-        while (nbArrives < nbRobotsTotal) and ((optimizeMakespan and makespan<makespanMini) or (not(optimizeMakespan) and distance<distanceMini)):
+        needReset = False
+        stepVideCount = 0
+        stepVideMaxCount = 20
+        
+        while not(needReset) and (nbArrives < nbRobotsTotal) and ((optimizeMakespan and makespan<makespanMini) or (not(optimizeMakespan) and distance<distanceMini)):
             step = SolutionStep()
             stepIsEmpty = True # Booléen qui nous permettra de ne pas ajouter des steps inutiles
               
@@ -527,18 +536,23 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
                 
             if not(stepIsEmpty):
                 makespan += 1
+                stepVideCount = 0
                 solution.add_step(step)
                 
                 # On enlève les anciennes positions des robots
                 for pos in caseToRemove:
                     cases_prises.remove(pos)
+            else:
+                stepVideCount += 1
+                if stepVideCount >= stepVideMaxCount:
+                    needReset = True
 
 
         # On est sortis de la boucle
         nbEssais += 1
         print(nbArrives)
         # SI ON ARRIVE ICI C'EST QU'ON A TROUVE UNE SOLUTION
-        if True:#((optimizeMakespan and makespan<makespanMini) or (not(optimizeMakespan) and distance<distanceMini)):
+        if not(needReset) and ((optimizeMakespan and makespan<makespanMini) or (not(optimizeMakespan) and distance<distanceMini)):
             nbAmeliorations += 1
             print("")
             print("Trouvé une solution au "+str(nbEssais)+"ième essai | makespan = "+str(solution.makespan) + "   | distance = " + str(solution.total_moves))
@@ -605,5 +619,5 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
 
 #"small_000_10x10_20_10.instance"
 #"small_free_001_10x10_40_40.instance"
-trouverSolution("small_free_001_10x10_40_40.instance", maxMakespan = 100, optimizeMakespan = True,
+trouverSolution("small_001_10x10_40_30.instance", maxMakespan = 1000, optimizeMakespan = True,
                 timeMax=60)
