@@ -9,7 +9,7 @@ start_y = -5
 nx = 20
 ny = 20
 map_file = '../datasets/small_000_10x10_20_10.instance.json'
-sol_file = '../solutions/small_000_10x10_20_10.instance/best_makespan.json'
+sol_file = '../solutions/small_000_10x10_20_10.instance/2021_02_01_03_24_47_2___test_parallel_3.json'
 nbInterMoves = 10
 # ================================================== #
 
@@ -93,7 +93,7 @@ def deplacerRobots():
 def showRobots():
     global pos_robots, nx, ny, s, start_x, start_y
     
-    i = 0
+    i = -1
     textSize(int(s/2.0))
     textAlign(CENTER, CENTER)
     stroke(0,0,0)
@@ -113,7 +113,7 @@ def showRobots():
 def showTargets():
     global data, nx, ny, s, start_x, start_y
     
-    i = 0
+    i = -1
     textSize(int(s/2.0))
     textAlign(CENTER, CENTER)
     stroke(0,0,0)
@@ -225,7 +225,7 @@ def loadData():
         
         
 def keyPressed():
-    global moveToNextStep, steps, nbInterCurrent, automatique, inc_nbIntermoves
+    global moveToNextStep, steps, nbInterCurrent, automatique, inc_nbIntermoves, nbInterMoves
     print(keyCode)
     if keyCode == 10:
         automatique = not(automatique)
@@ -240,13 +240,20 @@ def keyPressed():
             nextStep()
             
     if keyCode == 82: #r
-        if len(steps) == 0:
+        if len(steps) == 0 or not(moveToNextStep):
             getPosInitialRobots()
             loadSteps()
             affichage()
             automatique = False
             
     if keyCode == 65: #a
-        inc_nbIntermoves -= 1
+        if not(moveToNextStep):
+            nbInterMoves -= 1
+            nbInterMoves = max(1, nbInterMoves)
+        else:
+            inc_nbIntermoves -= 1
     if keyCode == 83: #s
-        inc_nbIntermoves += 1
+        if not(moveToNextStep):
+            nbInterMoves += 1
+        else:
+            inc_nbIntermoves += 1
