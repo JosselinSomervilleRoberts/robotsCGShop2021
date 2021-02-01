@@ -75,6 +75,7 @@ class Pilote :
         self.n = n
         self.T = T
         self.dernier_pas = ZERO
+        self.lastDir = Direction.WAIT
         #Le tableau T est un tableau d'entiers
         #T[i,j] est le nombre minimal de pas qu'il faut faire en partant de 
         # (i,j) pour aller à la cible en évitant les obstacles (mais sans autres robots)
@@ -93,6 +94,7 @@ class Pilote :
         self.r = 0.3
         self.a = 0.2
         self.d = 4
+        self.poisson = 0.2
     def reset(self):
         self.p =self.depart
         self.dernier_pas =ZERO
@@ -108,27 +110,48 @@ class Pilote :
             if self.T[v]==self.T[self.p]-1:
                 R.append(v)
         return  R
-    def params(self,r,a,d):
+    def params(self,r,a,d, poisson):
         self.r = r
         self.a = a
         self.d = d
+        self.poisson = poisson
     def pas_probabiliste(self,cases_prises=[]):
         REPULSION = self.r
         ALEATOIRE = self.a
         DETERMINISTE = self.d
+        POISSON = self.poisson
         '''Dans la stratégie *banc de poissons, on demande au robot de faire un pas
         Il renvoie le pas choisi en format tuple'''
         p = self.p
-        cases_prises_relat = [ (r[0]-p[0],r[1]-p[1]) for r in cases_prises]
+        cases_prises_relat = [ (r[0]-p[0],r[1]-p[1], r[2]) for r in cases_prises]
         poids_direction = [ [i,0.] for i in range(5)]
         decisions_possibles = [ (elt[0]-p[0],elt[1]-p[1]) for elt in self.voisins(p)] + [(0,0)]
         
+        sameDir = []
+        
         cases_prises_proches = []
         for r in cases_prises_relat :
-            if r!=(0,0) :
+            if r[0] !=  0 or r[1] != 0 :
+                x = r[0]
+                y = r[1]
+                di = r[2]
+                ajouterCase = True
+                
+                if x==0 and y==1 and di==Direction.NORTH:
+                    ajouterCase = False
+                elif x==0 and y==-1 and di==Direction.SOUTH:
+                    ajouterCase = False
+                elif x==-1 and y==0 and di==Direction.WEST:
+                    ajouterCase = False
+                elif x==1 and y==0 and di==Direction.EAST:
+                    ajouterCase = False
+                
                 d = abs(r[0])+abs(r[1])
-                if d<4 :
-                    cases_prises_proches.append(r)
+                if ajouterCase:
+                    if d<4:
+                        cases_prises_proches.append((x,y))
+                else:
+                    sameDir.append((x,y))
         
         for c in cases_prises_proches :
             for d in decisions_possibles :
@@ -142,6 +165,10 @@ class Pilote :
             delta = self.T[p]-self.T[d_abs]
             
             if delta== 1 : delta = DETERMINISTE
+            """
+            if d in sameDir:
+                delta += POISSON
+            """
             poids_direction[index(d)][1] += delta
         
         for i in reversed(range(len(poids_direction))) :
@@ -158,7 +185,8 @@ class Pilote :
             if poids_direction[0][1]>tirage:
                 pas = directions[int(poids_direction[0][0])]
                 self.p = (self.p[0]+pas[0],self.p[1]+pas[1])
-                return directions_utils[poids_direction[0][0]]
+                self.lastDir = directions_utils[poids_direction[0][0]]
+                return self.lastDir
             tirage -= poids_direction[0][1]
             poids_direction.pop(0)
         print("Erreur !")
@@ -170,7 +198,8 @@ class Pilote :
 def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistance = 10000, timeMax = 10,
                     marge = 5, repulsionMoy=0.3, repulsionVariation=0.1,
                     aleatoireMoy=0.2, aleatoireVariation=0.1,
-                    deterministeMoy=30, deterministeVariation=12):
+                    deterministeMoy=30, deterministeVariation=12,
+                    poissonMoy=0.2, poissonVariation=0.1):
     """
     Recherche une solution optimale (en makespan ou distance)
 
@@ -195,7 +224,7 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
     """
     
     s = input("Nom de l'enregistrement du fichier ? (\"No\" pour ne pas sauvegarder)\n")
-    
+
     # Chargement du fichier
     idb = InstanceDatabase("datasets.zip")
 
@@ -246,7 +275,8 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
         pr = repulsionMoy + repulsionVariation *(-1 +2*np.random.random())
         pa = aleatoireMoy + aleatoireVariation *(-1 +2*np.random.random())
         pd = deterministeMoy + deterministeVariation *(-1 +2*np.random.random())
-        [elt.params(pr,pa,pd) for elt in pilotes]
+        poisson = poissonMoy + poissonVariation *(-1 +2*np.random.random())
+        [elt.params(pr,pa,pd, poisson) for elt in pilotes]
         
         # Variables utilisées à chaque step
         nbArrives = 0
@@ -263,6 +293,7 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
             
             # Anciennes positions des robots, à enlever au prochain pas
             caseToRemove = []
+            cases_prises = [(elt.p[0], elt.p[1], Direction.WAIT) for elt in pilotes] # Cases inaccessibles
             
             random.shuffle(pilotesActifs)
             for monPilote in pilotesActifs:
@@ -279,8 +310,11 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
                     if pp != Direction.WAIT: # Si le robot bouge, le pas n'est pas inutile
                         stepIsEmpty = False
                         distance += 1
-                        caseToRemove.append(previousPosPilote)
-                        cases_prises.append(monPilote.p)
+                        #caseToRemove.append(previousPosPilote)
+                        cases_prises.append((monPilote.p[0], monPilote.p[1], Direction.WAIT))
+                        
+                        cases_prises.remove((previousPosPilote[0], previousPosPilote[1], Direction.WAIT))
+                        cases_prises.append((previousPosPilote[0], previousPosPilote[1], monPilote.lastDir))
                 step[monPilote.index] = pp
                 
                 
@@ -345,6 +379,9 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
                 print("Bad Solution:", ise)
             except SolutionEncodingError as see:
                 print("Bad Solution File:", see)
+                
+    with SolutionZipWriter("out.zip") as szw:
+                    szw.add_solution(solution)
             
               
                 
@@ -355,4 +392,5 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
 
 
 
-trouverSolution("small_000_10x10_20_10.instance", optimizeMakespan = True, timeMax=300)
+trouverSolution("small_free_001_10x10_40_40.instance", maxMakespan = 500, optimizeMakespan = True,
+                timeMax=20, deterministeMoy=6, deterministeVariation=4)
