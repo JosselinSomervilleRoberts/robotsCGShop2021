@@ -17,6 +17,8 @@ import shutil
 import glob
 from datetime import datetime
 
+
+INFINITY = 99
 OBS = -2
 NORD = (0,1)
 N = 0
@@ -67,6 +69,22 @@ class Pilote :
             L.append((x,y+1))
         return L
     
+    def calculerChemin(self):
+        L = [self.cible]
+        self.T[self.cible]=0
+        while len(L)>0 :
+            c = L[0]
+            if not(c in self.dicFils):
+                self.dicFils[c] = []
+            V = self.voisins(c)
+            for v in V :
+                if self.T[v]==-1 :
+                    L.append(v)
+                    if not(v in self.dicFils[c]):
+                        self.dicFils[c].append(v)
+                    self.T[v]=self.T[c]+1
+            L.pop(0)
+    
     def __init__(self, index, n, cible,depart,T):
         self.depart = depart
         self.p = depart #La position actuelle du robot
@@ -80,16 +98,8 @@ class Pilote :
         #T[i,j] est le nombre minimal de pas qu'il faut faire en partant de 
         # (i,j) pour aller à la cible en évitant les obstacles (mais sans autres robots)
         #A partir de ça on peut reconstituer les chemins
-        L = [self.cible]
-        self.T[self.cible]=0
-        while len(L)>0 :
-            c = L[0]
-            V = self.voisins(c)
-            for v in V :
-                if self.T[v]==-1 :
-                    L.append(v)
-                    self.T[v]=self.T[c]+1
-            L.pop(0)
+        self.dicFils = {}
+        self.calculerChemin()
         
         self.r = 0.3
         self.a = 0.2
@@ -100,19 +110,86 @@ class Pilote :
         self.p =self.depart
         self.dernier_pas =ZERO
         self.T = T
-        L = [self.cible]
+        self.calculerChemin()
+        
+    def effacerChemin(self, obs):
+        #print("effacerChemin")
+        L = [fils for fils in self.dicFils[obs]]
+        aRecalculer = []
+        #Tbefore = np.copy(self.T)
+        while len(L) > 0:
+            c = L.pop(0)
+            aRecalculer.append(c)
+            self.T[c] = -1
+            L += [fils for fils in self.dicFils[c]]
+            self.dicFils[c] = []
+        
+        
+        #Tmiddle = np.copy(self.T)
+        probleme = self.recalculerChemin(aRecalculer)
+        
+        """
+        if probleme:
+            print("T before:")
+            print(Tbefore)
+            print("OBS=", obs)
+            print("\nT middle:")
+            print(Tmiddle)
+            print("\nT after:")
+            print(self.T)
+            print("\n\n")
+            time.sleep(1)
+        """
+        
+    def recalculerChemin(self, aRecalculer):
+        L = copy(aRecalculer)
+        vaEtreRefait = []
         self.T[self.cible]=0
         while len(L)>0 :
-            c = L[0]
-            V = self.voisins(c)
-            for v in V :
-                if self.T[v]==-1 :
-                    L.append(v)
-                    self.T[v]=self.T[c]+1
-            L.pop(0)
+            c = L.pop(0)
+            voisins = self.voisins(c)
+            if len(voisins) > 0:
+                indexMin = 0
+                mini = INFINITY
+                for i in range(0,len(voisins)):
+                    if 0 <= self.T[voisins[i]] < mini:
+                        indexMin = i
+                        mini = self.T[voisins[i]]
+                                
+                if not(mini >= INFINITY):
+                    newC = voisins[indexMin]       
+                    if not(c in self.dicFils[newC]):
+                        self.dicFils[newC].append(c)
+                    self.T[c]=self.T[newC]+1
+                    
+                    if c in vaEtreRefait:
+                        vaEtreRefait.remove(c)
+                        
+                    if len(vaEtreRefait) > 0:
+                        for v in self.voisins(c):
+                            if v in vaEtreRefait:
+                                vaEtreRefait.remove(v)
+                                L.append(v)
+                else:
+                    if not(c in vaEtreRefait):
+                        vaEtreRefait.append(c)
+                        self.T[c] = INFINITY
+                    else:
+                        #print("hey")
+                        pass
+                    #print("hey", c)
+                    #print("Robot " + str(self.index) + " bloqué")
+            else:
+                #print("Robot " + str(self.index) + " bloqué")
+                pass
+        return False#len(vaEtreRefait) > 0
+            
+
         
     def ajouterObstacle(self, obs):
         self.T[obs] = OBS
+        self.effacerChemin(obs)
+        #self.calculerChemin()
         
     def distance(self):
         '''En combien de pas le robot peut-il arriver à destination'''
@@ -360,7 +437,7 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
 
         # On est sortis de la boucle
         nbEssais += 1
-        
+        print(nbArrives)
         # SI ON ARRIVE ICI C'EST QU'ON A TROUVE UNE SOLUTION
         if ((optimizeMakespan and makespan<makespanMini) or (not(optimizeMakespan) and distance<distanceMini)):
             nbAmeliorations += 1
@@ -410,10 +487,16 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
                 print("Bad Solution:", ise)
             except SolutionEncodingError as see:
                 print("Bad Solution File:", see)
-                
     
-    with SolutionZipWriter("out2.zip") as szw:
+    #print(nbArrives)
+    """
+    with SolutionZipWriter("out8.zip") as szw:
         szw.add_solution(solution)
+    """
+    
+    
+    
+    
     
             
               
@@ -425,5 +508,6 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
 
 
 #"small_000_10x10_20_10.instance"
-trouverSolution("small_free_001_10x10_40_40.instance", maxMakespan = 50, optimizeMakespan = True,
-                timeMax=2)
+#"small_free_001_10x10_40_40.instance"
+trouverSolution("small_free_001_10x10_40_40.instance", maxMakespan = 100, optimizeMakespan = True,
+                timeMax=60)

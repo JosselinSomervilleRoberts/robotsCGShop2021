@@ -9,7 +9,7 @@ start_y = -5
 nx = 20
 ny = 20
 map_file = '../datasets/small_free_001_10x10_40_40.instance.json'
-sol_file = '../solutions/small_free_001_10x10_40_40_SOLUTION_SUM614_MS50.json'
+sol_file = '../solutions/small_free_001_10x10_40_40_SOLUTION_SUM1095_MS200.json'
 nbInterMoves = 10
 # ================================================== #
 
