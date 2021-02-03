@@ -75,11 +75,14 @@ class Pilote :
             self.carte.ajouterObstaclesPermanents(obstacles)
         self.carte.setCible(cible)
         
+        self.potentiel = np.zeros((nx,ny))
+        
         self.r = 0.3
         self.a = 0.2
         self.d = 4
         self.poisson = 0.2
         self.porteeRepulsion = 2
+        self.attirancePotentiel = 1
         
     def reset(self):
         self.p =self.depart
@@ -166,8 +169,13 @@ class Pilote :
             d_abs = (p[0]+d[0],p[1]+d[1])
             delta = self.carte.getValue(p) - self.carte.getValue(d_abs)
             
+            # Aller dans la bonne direction
             if delta > 0: delta *= DETERMINISTE
             
+            # Potentiel
+            delta += self.attirancePotentiel * (self.potentiel[d_abs] - self.potentiel[p])
+            
+            # Rester collé à un robot voisin
             if d in sameDir:
                 delta += POISSON
             
@@ -370,6 +378,86 @@ def ecarter(pilotes, list_boxs, etape=1):
             
                 
     return liste_steps
+
+
+
+def ecarterProba(pilotes, nx, ny, margeX, margeY, temps):
+    AJOUT_POTENTIEL = nx + ny
+    
+    potentiel = np.ones((nx+2*margeX, ny+2*margeY)) * (int(nx/2.0) + int(ny/2.0) + AJOUT_POTENTIEL)
+    milieu = (margeX + int(nx/2.0), margeY + int(ny/2.0))
+    
+    # Milieu
+    for x in range(margeX, margeX + nx):
+        for y in range(margeY, margeY + ny):
+            potentiel[(x,y)] = dist((x,y), milieu)
+            
+    # Bords
+    for x in range(0, 2*margeX + nx):
+        potentiel[(x,0)] = 0
+        potentiel[(x,2*margeY+ny-1)] = 0
+    for y in range(0, 2*margeY + ny):
+        potentiel[(0,y)] = 0
+        potentiel[(2*margeX+nx-1,y)] = 0
+        
+        
+    for p in pilotes:
+        p.carte.resetMap()
+        p.potentiel = potentiel
+        p.r = 5
+        p.a = 1
+        p.d = 0
+        p.poisson = 3
+        p.porteeRepulsion = 4
+        p.attirancePotentiel = 10
+        
+        
+    makespan = 0
+    distance = 0
+    liste_steps = []
+    stepVideMaxCount = 10
+    needReset = False
+    stepVideCount = 0
+        
+    while not(needReset) and makespan < temps:
+        step = SolutionStep()
+        #print(makespan)
+                
+        stepIsEmpty = True # Booléen qui nous permettra de ne pas ajouter des steps inutiles
+            
+        # Anciennes positions des robots, à enlever au prochain pas
+        cases_prises = [(elt.p[0], elt.p[1], Direction.WAIT) for elt in pilotes] # Cases inaccessibles
+            
+        for monPilote in pilotes:
+            previousPosPilote = monPilote.p
+            pp = monPilote.pas_probabiliste(cases_prises)
+            if pp != Direction.WAIT: # Si le robot bouge, le pas n'est pas inutile
+                stepIsEmpty = False
+                distance += 1
+                #caseToRemove.append(previousPosPilote)
+                cases_prises.append((monPilote.p[0], monPilote.p[1], Direction.WAIT))
+                        
+                cases_prises.remove((previousPosPilote[0], previousPosPilote[1], Direction.WAIT))
+                cases_prises.append((previousPosPilote[0], previousPosPilote[1], monPilote.lastDir))
+            step[monPilote.index] = pp
+                
+                
+        if not(stepIsEmpty):
+            makespan += 1
+            stepVideCount = 0
+            liste_steps.append(step)
+        else:
+            stepVideCount += 1
+            if stepVideCount >= stepVideMaxCount:
+                needReset = True
+                
+           
+    potentiel = np.zeros((nx+2*margeX, ny+2*margeY))           
+    for p in pilotes:
+        p.potentiel = potentiel
+      
+    return liste_steps
+            
             
     
                 
@@ -377,10 +465,10 @@ def ecarter(pilotes, list_boxs, etape=1):
 
 
 def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistance = 10000, timeMax = 10,
-                    repulsionMoy=0.3, repulsionVariation=0.1,
-                    aleatoireMoy=0.2, aleatoireVariation=0.1,
+                    repulsionMoy=2, repulsionVariation=1,
+                    aleatoireMoy=1.5, aleatoireVariation=1,
                     deterministeMoy=30, deterministeVariation=12,
-                    poissonMoy=0.2, poissonVariation=0.1):
+                    poissonMoy=5, poissonVariation=3):
     """
     Recherche une solution optimale (en makespan ou distance)
     Parameters
@@ -405,6 +493,7 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
 
     # Chargement du fichier
     idb = InstanceDatabase("datasets.zip")
+    rayon = 5
 
     i= idb[file]
     
@@ -412,8 +501,8 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
     ny = 1 + max([i.start_of(r)[1] for r in range(i.number_of_robots)])
     
     # On rajoute la marge
-    margeX = nx
-    margeY = ny
+    margeX = int(2*nx/3.0)
+    margeY = int(2*ny/3.0)
     tailleX = nx + 2*margeX
     tailleY = ny + 2*margeY
     print(nx, ny)
@@ -439,10 +528,10 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
         cible_decalee = (i.target_of(r)[0] + margeX, i.target_of(r)[1] + margeY)
         depart_decale = (i.start_of(r)[0] + margeX, i.start_of(r)[1] + margeY)
         pilotes.append(Pilote(r, tailleX, tailleY, cible_decalee, depart_decale, obstacles_decales))
+         
     
     print("Pilotes initialisés")
-    boxs = getBoxes(pilotes, margeX, margeY, nx, ny)
-    print("Got boxes")
+    
     #print(calculPriorites2(pilotes))
     makespanMini = maxMakespan
     distanceMini = maxDistance
@@ -462,6 +551,16 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
         
         # On met des params aléatoires
         [ elt.reset() for elt in pilotes]
+        
+        liste_steps = ecarterProba(pilotes, nx, ny, margeX, margeY, random.randint(0, nx + ny))
+        solution = Solution(i)
+        for step in liste_steps:
+            makespan += 1
+            solution.add_step(step)
+            
+        for p in pilotes:
+            p.carte.bfs(p.cible[0], p.cible[1])
+        
         pr = repulsionMoy + repulsionVariation *(-1 +2*np.random.random())
         pa = aleatoireMoy + aleatoireVariation *(-1 +2*np.random.random())
         pd = deterministeMoy + deterministeVariation *(-1 +2*np.random.random())
@@ -479,40 +578,48 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
         stepVideCount = 0
         stepVideMaxCount = 20
         
-        print("début ecartement")
-        for etape in range(len(boxs)):
-            print(etape+1)
-            liste_steps = ecarter(pilotes, boxs, etape+1)
-            for step in liste_steps:
-                makespan += 1
-                solution.add_step(step)
-                
-        print("\n\nEcartement terminé")
-        priorites = calculPriorites2(pilotes)[::-1]
-        print(priorites)
+        priorites = calculPriorites2(pilotes)
+        #print(priorites)
         prio = 0
-        """
-        with SolutionZipWriter("outNOUVEAUTrump.zip") as szw:
-                szw.add_solution(solution)
-        print("Enregistrement terminé")
-        """
+        
+        if priorites is None:
+            needReset = True
+        else:
+            priorites = priorites[::-1]
         
         while not(needReset) and (nbArrives < nbRobotsTotal) and ((optimizeMakespan and makespan<makespanMini) or (not(optimizeMakespan) and distance<distanceMini)):
             step = SolutionStep()
-            print(makespan)
+            #print(makespan)
+            
             if len(priorites[prio]) == 0:
                 prio += 1
+                """
+                for p in pilotes:
+                    if p in priorites[prio]:
+                        p.attirancePotentiel = 0
+                        p.potentiel = np.zeros((2*margeX+nx, 2*margeY+ny))
+                    else:
+                        p.attirancePotentiel = 500
+                        p.potentiel = np.ones((2*margeX+nx, 2*margeY+ny)) * (rayon+100)
+                        for x in range(-rayon, rayon +1):
+                            for y in range(-rayon + abs(x), rayon - abs(x) + 1):
+                                distance_from_cible = abs(x) + abs(y)
+                                p.potentiel[(p.cible[0]+x, p.cible[1]+y)] = distance_from_cible
+                                
+                """
+            
                 
             stepIsEmpty = True # Booléen qui nous permettra de ne pas ajouter des steps inutiles
               
             nbArrives = len(pilotesArrives)
             
             # Anciennes positions des robots, à enlever au prochain pas
-            caseToRemove = []
             cases_prises = [(elt.p[0], elt.p[1], Direction.WAIT) for elt in pilotes] # Cases inaccessibles
             
             #random.shuffle(pilotesActifs)
             for index in priorites[prio]:
+            #for monPilote in pilotesActifs:#priorites[prio]:
+                #index = monPilote.index
                 monPilote = pilotes[index]
                 pp = None # Action du robot (WAIT, SOUTH, NORTH, WEST, EAST)
                 if monPilote.p == monPilote.cible: 
@@ -521,10 +628,11 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
                     pp = Direction.WAIT
                     pilotesArrives.append(monPilote)
                     pilotesActifs.remove(monPilote)
-                    print("nbArrives =", nbArrives)
-                    priorites[prio].remove(index)
+                    #print("nbArrives =", nbArrives)
+                    if index in priorites[prio]:
+                        priorites[prio].remove(index)
                     for p in pilotes:
-                        p.ajouterObstacles([monPilote.p], recalculer = random.random() <= 0.1)
+                        p.ajouterObstacles([monPilote.p], recalculer = random.random() <= 1)
                 else :
                     previousPosPilote = monPilote.p
                     pp = monPilote.pas_probabiliste(cases_prises)
@@ -543,10 +651,6 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
                 makespan += 1
                 stepVideCount = 0
                 solution.add_step(step)
-                
-                # On enlève les anciennes positions des robots
-                for pos in caseToRemove:
-                    cases_prises.remove(pos)
             else:
                 stepVideCount += 1
                 if stepVideCount >= stepVideMaxCount:
@@ -626,7 +730,7 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
 #"small_free_001_10x10_40_40.instance"
 "universe_bgradiation_00009_100x100_80_8000"
 
-trouverSolution("galaxy_cluster_00000_20x20_20_80.instance", maxMakespan = 400, optimizeMakespan = True,
+trouverSolution("galaxy_cluster_00000_20x20_20_80.instance", maxMakespan = 200, optimizeMakespan = True,
                 timeMax=60)
 """
 

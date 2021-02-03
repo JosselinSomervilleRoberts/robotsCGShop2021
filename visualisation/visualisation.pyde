@@ -2,14 +2,14 @@ import json
 
 
 # ================= A CHANGER ====================== #
-size_x = 600
-size_y = 700
-start_x = -20
-start_y = -20
-nx = 60
-ny = 60
+size_x = 920
+size_y = 1020
+start_x = -13
+start_y = -13
+nx = 46
+ny = 46
 map_file = '../datasets/galaxy_cluster_00000_20x20_20_80.instance.json'
-sol_file = '../solutions/galaxy_cluster_00000_20x20_20_80.instance/2021_02_03_03_56_11_1___mini_galaxy.json'
+sol_file = '../solutions/galaxy_cluster_00000_20x20_20_80.instance/2021_02_03_05_21_33_1___nouvelle_prio.json'
 nbInterMoves = 10
 # ================================================== #
 
