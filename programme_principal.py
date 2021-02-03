@@ -421,7 +421,7 @@ def ecarterProba(pilotes, nx, ny, margeX, margeY, temps):
         
     while not(needReset) and makespan < temps:
         step = SolutionStep()
-        #print(makespan)
+        print(makespan)
                 
         stepIsEmpty = True # Booléen qui nous permettra de ne pas ajouter des steps inutiles
             
@@ -494,6 +494,9 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
     # Chargement du fichier
     idb = InstanceDatabase("datasets.zip")
     rayon = 5
+    probaRecalcul = 0.05
+    shffufleMin = 50
+    
 
     i= idb[file]
     
@@ -552,7 +555,7 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
         # On met des params aléatoires
         [ elt.reset() for elt in pilotes]
         
-        liste_steps = ecarterProba(pilotes, nx, ny, margeX, margeY, random.randint(0, nx + ny))
+        liste_steps = ecarterProba(pilotes, nx, ny, margeX, margeY, random.randint(shffufleMin, nx + ny))
         solution = Solution(i)
         for step in liste_steps:
             makespan += 1
@@ -589,7 +592,7 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
         
         while not(needReset) and (nbArrives < nbRobotsTotal) and ((optimizeMakespan and makespan<makespanMini) or (not(optimizeMakespan) and distance<distanceMini)):
             step = SolutionStep()
-            #print(makespan)
+            print(makespan)
             
             if len(priorites[prio]) == 0:
                 prio += 1
@@ -632,7 +635,7 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
                     if index in priorites[prio]:
                         priorites[prio].remove(index)
                     for p in pilotes:
-                        p.ajouterObstacles([monPilote.p], recalculer = random.random() <= 1)
+                        p.ajouterObstacles([monPilote.p], recalculer = random.random() <= probaRecalcul)
                 else :
                     previousPosPilote = monPilote.p
                     pp = monPilote.pas_probabiliste(cases_prises)
@@ -728,9 +731,10 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
 
 #"small_000_10x10_20_10.instance"
 #"small_free_001_10x10_40_40.instance"
-"universe_bgradiation_00009_100x100_80_8000"
+#"universe_bgradiation_00009_100x100_80_8000"
+#galaxy_cluster_00000_20x20_20_80
 
-trouverSolution("galaxy_cluster_00000_20x20_20_80.instance", maxMakespan = 200, optimizeMakespan = True,
+trouverSolution("galaxy_cluster2_00003_50x50_25_625.instance", maxMakespan = 10000, optimizeMakespan = True,
                 timeMax=60)
 """
 

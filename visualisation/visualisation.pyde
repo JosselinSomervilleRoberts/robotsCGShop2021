@@ -2,14 +2,14 @@ import json
 
 
 # ================= A CHANGER ====================== #
-size_x = 920
-size_y = 1020
-start_x = -13
-start_y = -13
-nx = 46
-ny = 46
-map_file = '../datasets/galaxy_cluster_00000_20x20_20_80.instance.json'
-sol_file = '../solutions/galaxy_cluster_00000_20x20_20_80.instance/2021_02_03_05_21_33_1___nouvelle_prio.json'
+size_x = 880
+size_y = 980
+start_x = -30
+start_y = -30
+nx = 110
+ny = 110
+map_file = '../datasets/galaxy_cluster2_00003_50x50_25_625.instance.json'
+sol_file = '../solutions/galaxy_cluster2_00003_50x50_25_625.instance/2021_02_03_05_44_59_1___mdr.json'
 nbInterMoves = 10
 # ================================================== #
 
@@ -199,7 +199,7 @@ def affichage():
     
     fill(0,0,0)
     textAlign(CENTER, CENTER)
-    textSize(int(size_x/35.0))
+    textSize(int(size_x/45.0))
     text("Nombre robots", t, size_y - 80, 4*t, 30)
     text(str(len(pos_robots)), t, size_y - 50, 4*t, 25)
     text("Makespan", 6*t, size_y - 80, 4*t, 30)
