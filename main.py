@@ -69,6 +69,7 @@ class Pilote :
         return L
     
     def calculerChemin(self):
+        #return
         L = [self.cible]
         self.T[self.cible]=0
         while len(L)>0 :
@@ -98,7 +99,7 @@ class Pilote :
         # (i,j) pour aller à la cible en évitant les obstacles (mais sans autres robots)
         #A partir de ça on peut reconstituer les chemins
         self.dicFils = {}
-        self.calculerChemin()
+        #self.calculerChemin()
         
         self.r = 0.3
         self.a = 0.2
@@ -190,8 +191,11 @@ class Pilote :
         
     def ajouterObstacle(self, obs):
         self.T[obs] = OBS
-        self.effacerChemin(obs)
-        return
+        #self.effacerChemin(obs)
+        #return
+        
+        if random.random() <= 0.9:
+            return
         
         for x in range(len(self.T)):
             for y in range(len(self.T[0])):
@@ -252,6 +256,10 @@ class Pilote :
         self.a = a
         self.d = d
         self.poisson = poisson
+        
+    def move(self, inc):
+        self.p = (self.p[0]+inc[0],self.p[1]+inc[1])
+        self.lastDir = directions_utils[index(inc)]
         
     def pas_probabiliste(self,cases_prises=[]):
         REPULSION = self.r
@@ -326,8 +334,7 @@ class Pilote :
         somme = sum([elt for elt in poids_direction])
         poids_direction=[elt/somme for elt in poids_direction]
         pas = random.choices(directions, weights=poids_direction, k=1)[0]
-        self.p = (self.p[0]+pas[0],self.p[1]+pas[1])
-        self.lastDir = directions_utils[index(pas)]
+        self.move(pas)
         return self.lastDir
         print("Erreur !")
         
@@ -390,6 +397,91 @@ def calculPriorites2(pilotes):
         
     print("Distance = ", distance)
     return groupes
+
+
+
+
+def getBoxes(pilotes, xStart, yStart, widthX, widthY):
+    boxs = [[[xStart,yStart,widthX,widthY, pilotes]]]
+    liste_directions = [Direction.SOUTH,Direction.WEST, Direction.NORTH,Direction.EAST]
+    continuer = True
+    
+    margeSup = 0#int(round(np.log(tailleBox)/np.log(2),0))
+    i = -1
+    while continuer:
+        i += 1
+        continuer = False
+        boxs.append([])
+        if i==0:
+            boxs.append([])
+        for b in boxs[i]:
+            if b[2] > 1 and b[3] > 1 and len(b[4]) > 1:
+                continuer = True
+                halfX = int(b[2]/2.0)
+                halfY = int(b[3]/2.0)
+                for x in range(2):
+                    startX = b[0] + x*int(b[2]/2.0)
+                    widthX = int(b[2]/2.0)
+                    if x == 1:
+                        widthX = b[2] - int(b[2]/2.0)
+                    for y in range(2):
+                        startY = b[1] + y*(int(b[3]/2.0))
+                        widthY = int(b[3]/2.0)
+                        if y == 1:
+                            widthY = b[3] - int(b[3]/2.0)
+                            
+                        i_dir = (y*(x==0) + (3-y)*(x==1) + i%2)%4
+                        
+                        new_pilotes = []
+                        for pil in b[4]:
+                            if 0 <= pil.depart[0] - startX < widthX and 0 <= pil.depart[1] - startY < widthY:
+                                new_pilotes.append(pil)
+                        
+                        boxs[i+1].append([startX, startY, widthX, widthY, new_pilotes, liste_directions[i_dir], margeSup + max(widthX, widthY)])
+                        if i==0:
+                            boxs[2].append([startX, startY, widthX, widthY, new_pilotes, liste_directions[(y*(x==0) + (3-y)*(x==1) + 1)%4], margeSup + max(widthX, widthY)])
+            else:
+                pass
+        
+        if i==0:
+            i+=1
+        margeSup = 0
+                
+    return boxs[1:-1]
+
+
+
+
+def ecarter(pilotes, list_boxs, etape=1):
+    boxes = list_boxs[etape-1]
+    
+    liste_steps = []
+    for b in boxes:
+        for i in range(b[6]):
+            if i >= len(liste_steps):
+                liste_steps.append(SolutionStep())
+                
+            for pil in b[4]:
+                liste_steps[i][pil.index]  = b[5]
+        
+        inc = (0,0)
+        if b[5] == Direction.NORTH:
+            inc = (0,1)
+        elif b[5] == Direction.SOUTH:
+            inc = (0,-1)
+        elif b[5] == Direction.WEST:
+            inc = (-1,0)
+        elif b[5] == Direction.EAST:
+            inc = (1,0)
+            
+        for pil in b[4]:
+             for _ in range(b[6]):
+                 pil.move(inc)
+            
+                
+    return liste_steps
+            
+    
                 
             
 
@@ -460,7 +552,9 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
         pilotes.append(Pilote(r, taille,(i.target_of(r)[0]+marge,i.target_of(r)[1]+marge) ,(i.start_of(r)[0]+marge,i.start_of(r)[1]+marge), copy(T)))
     
     print("Pilotes initialisés")
-    print(calculPriorites2(pilotes))
+    boxs = getBoxes(pilotes, tailleBox, marge)
+    print("Got boxes")
+    #print(calculPriorites2(pilotes))
     makespanMini = maxMakespan
     distanceMini = maxDistance
     nbAmeliorations = 0
@@ -496,8 +590,30 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
         stepVideCount = 0
         stepVideMaxCount = 20
         
+        print("début ecartement")
+        for etape in range(len(boxs)):
+            print(etape+1)
+            liste_steps = ecarter(pilotes, boxs, etape+1)
+            for step in liste_steps:
+                makespan += 1
+                solution.add_step(step)
+                
+        print("\n\nEcartement terminé")
+        priorites = calculPriorites2(pilotes)[::-1]
+        print(priorites)
+        prio = 0
+        """
+        with SolutionZipWriter("outEcartementTrump.zip") as szw:
+                szw.add_solution(solution)
+        print("Enregistrement terminé")
+        """
+        
         while not(needReset) and (nbArrives < nbRobotsTotal) and ((optimizeMakespan and makespan<makespanMini) or (not(optimizeMakespan) and distance<distanceMini)):
             step = SolutionStep()
+            print(makespan)
+            if len(priorites[prio]) == 0:
+                prio += 1
+                
             stepIsEmpty = True # Booléen qui nous permettra de ne pas ajouter des steps inutiles
               
             nbArrives = len(pilotesArrives)
@@ -506,8 +622,9 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
             caseToRemove = []
             cases_prises = [(elt.p[0], elt.p[1], Direction.WAIT) for elt in pilotes] # Cases inaccessibles
             
-            random.shuffle(pilotesActifs)
-            for monPilote in pilotesActifs:
+            #random.shuffle(pilotesActifs)
+            for index in priorites[prio]:
+                monPilote = pilotes[index]
                 pp = None # Action du robot (WAIT, SOUTH, NORTH, WEST, EAST)
                 if monPilote.p == monPilote.cible: 
                     nbArrives += 1
@@ -515,7 +632,8 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
                     pp = Direction.WAIT
                     pilotesArrives.append(monPilote)
                     pilotesActifs.remove(monPilote)
-                    
+                    print("nbArrives =", nbArrives)
+                    priorites[prio].remove(index)
                     for p in pilotes:
                         p.ajouterObstacle(monPilote.p)
                 else :
@@ -548,7 +666,7 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
 
         # On est sortis de la boucle
         nbEssais += 1
-        print(nbArrives)
+        print("arrives = ", nbArrives)
         # SI ON ARRIVE ICI C'EST QU'ON A TROUVE UNE SOLUTION
         if not(needReset) and ((optimizeMakespan and makespan<makespanMini) or (not(optimizeMakespan) and distance<distanceMini)):
             nbAmeliorations += 1
@@ -599,7 +717,7 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
             except SolutionEncodingError as see:
                 print("Bad Solution File:", see)
     
-    #print(nbArrives)
+    print(nbArrives)
     
     
     
@@ -617,5 +735,18 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
 
 #"small_000_10x10_20_10.instance"
 #"small_free_001_10x10_40_40.instance"
-trouverSolution("small_001_10x10_40_30.instance", maxMakespan = 1000, optimizeMakespan = True,
+"universe_bgradiation_00009_100x100_80_8000"
+
+trouverSolution("election_109.instance", maxMakespan = 400, marge=49, optimizeMakespan = True,
                 timeMax=60)
+"""
+
+b = getBoxes([], 10, 10)
+i = 1
+for line in b:
+    print("\n")
+    print("dim =", i)
+    print(line)
+    i+=1
+    
+"""

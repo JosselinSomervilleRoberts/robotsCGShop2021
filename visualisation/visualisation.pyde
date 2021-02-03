@@ -4,12 +4,12 @@ import json
 # ================= A CHANGER ====================== #
 size_x = 600
 size_y = 700
-start_x = -5
-start_y = -5
-nx = 20
-ny = 20
-map_file = '../datasets/small_001_10x10_40_30.instance.json'
-sol_file = '../solutions/small_001_10x10_40_30.instance/2021_02_01_18_33_58_3___engorgement.json'
+start_x = -20
+start_y = -20
+nx = 60
+ny = 60
+map_file = '../datasets/galaxy_cluster_00000_20x20_20_80.instance.json'
+sol_file = '../solutions/galaxy_cluster_00000_20x20_20_80.instance/2021_02_03_03_56_11_1___mini_galaxy.json'
 nbInterMoves = 10
 # ================================================== #
 
@@ -32,6 +32,7 @@ actual_makespan = 0
 inc_nbIntermoves = 0
 targetsOnTop = False
 transparence = True
+optimise = False
 
 
     
@@ -93,7 +94,7 @@ def deplacerRobots():
     
     
 def showRobots():
-    global pos_robots, nx, ny, s, start_x, start_y, data, transparence
+    global pos_robots, nx, ny, s, start_x, start_y, data, transparence, optimise
     
     i = -1
     textSize(int(s/2.0))
@@ -105,18 +106,24 @@ def showRobots():
         x, y = elt[0], elt[1]
         affX = x - start_x
         affY = ny -1 - y + start_y
-        fill(0,255,0,255-127*transparence)
+        
+        if optimise:
+            fill(0,255,0)
+        else:
+            fill(0,255,0,255-127*transparence)
         
         if data['targets'][i][0] == int(round(x,0)) and data['targets'][i][1] == int(round(y,0)):
             fill(255,0,255)
         rect(affX*s, affY*s, s, s)
-        fill(0,0,0)
-        text(str(i), affX*s, affY*s, s, s)
+        
+        if not(optimise):
+            fill(0,0,0)
+            text(str(i), affX*s, affY*s, s, s)
         
         
         
 def showTargets():
-    global data, nx, ny, s, start_x, start_y, transparence, pos_robots
+    global data, nx, ny, s, start_x, start_y, transparence, pos_robots, optimise
     
     i = -1
     textSize(int(s/2.0))
@@ -128,17 +135,23 @@ def showTargets():
         x, y = elt[0], elt[1]
         affX = x - start_x
         affY = ny -1 - y + start_y
-        fill(255,0,0, 255 - 127*transparence)
+        
+        if optimise:
+            fill(255,0,0)
+        else:
+            fill(255,0,0, 255 - 127*transparence)
         
         if int(round(pos_robots[i][0],0)) == x and int(round(pos_robots[i][1],0)) == y:
             fill(255,0,255)
         rect(affX*s, affY*s, s, s)
-        fill(0,0,0)
-        text(str(i), affX*s, affY*s, s, s)
+        
+        if not(optimise):
+            fill(0,0,0)
+            text(str(i), affX*s, affY*s, s, s)
         
         
 def draw_grid():
-    global data, nx, ny, s, start_x, start_y
+    global data, nx, ny, s, start_x, start_y, optimise
         
     for elt in data['obstacles']:
         x, y = elt[0], elt[1]
@@ -147,26 +160,29 @@ def draw_grid():
         fill(0,0,0)
         rect(affX*s, affY*s, s, s)
     
-    stroke(0,0,0)
-    strokeWeight(1)
-    for i in range(nx+1):
-        line(i*s, 0, i*s, ny*s)
-        
-    for j in range(ny+1):
-        line(0, j*s, nx*s, j*s)
+    if not(optimise):
+        stroke(0,0,0)
+        strokeWeight(1)
+        for i in range(nx+1):
+            line(i*s, 0, i*s, ny*s)
+            
+        for j in range(ny+1):
+            line(0, j*s, nx*s, j*s)
         
         
 def affichage():
-    global size_x, size_y, makespan, steps, total_distance, distance, pos_robots, actual_makespan, targetsOnTop
+    global size_x, size_y, makespan, steps, total_distance, distance, pos_robots, actual_makespan, targetsOnTop, optimise
     background(200,200,200)
     
     if targetsOnTop:
         showRobots()
-        showTargets()
+        if not(optimise):
+            showTargets()
         draw_grid()
     else:
         showTargets()
-        showRobots()
+        if not(optimise):
+            showRobots()
         draw_grid()
     
     fill(0,0,0)
@@ -194,11 +210,14 @@ def affichage():
     
     
 def setup():
-    global data, nx, ny, s, size_x, size_y
+    global data, nx, ny, s, size_x, size_y, optimise
     
     size(size_x, size_y)
     s = min(int(size_x/float(nx)), int(size_y-100/float(ny)))
     
+    if s<=8:
+        optimise = True
+        
     loadData()
     getPosInitialRobots()
     loadSteps()
