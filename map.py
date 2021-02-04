@@ -128,7 +128,7 @@ class Map:
         
         
         while nbACalculer > 0:
-            while distActuelle in L and len(L[distActuelle]) == 0:
+            while (distActuelle not in L) or (distActuelle in L and len(L[distActuelle]) == 0):
                 distActuelle+=1
             if distActuelle+1 not in L:
                 L[distActuelle+1] = []

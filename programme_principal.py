@@ -524,8 +524,9 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
                     aleatoireMoy=1.5, aleatoireVariation=1,
                     deterministeMoy=30, deterministeVariation=12,
                     poissonMoy=5, poissonVariation=3,
-                    useShuffle=True, usePriorite=True,
+                    useShuffle=True, usePriorite=True, useRollback=True,
                     shuffleMin=None, shuffleMax=None,
+                    rollbackMaxCount = None, waitBeforeRollback = None,
                     probaRecalcul=None, rayon=None,
                     margeX=None, margeY=None):
     """
@@ -580,6 +581,11 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
     if shuffleMax is None: shuffleMax = max(nx, ny)
     if shuffleMin is None: shuffleMin = min(max(int(nx/2.0), int(ny/2.0)), shuffleMax)    
     if not(useShuffle): shuffleMin, shuffleMax = 0, 0
+    
+    # On définit els paramètres pour le rollback
+    if waitBeforeRollback is None: waitBeforeRollback = nx + ny
+    if rollbackMaxCount is None: rollbackMaxCount = 3
+    if not(useRollback) : waitBeforeRollback = 1000000
     
     # Quelques paramètres en plus
     if probaRecalcul is None: probaRecalcul = min(1.0, max(0.01, 40.0/len(pilotes)))
@@ -653,9 +659,7 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
                 p.carte.bfs(p.cible[0], p.cible[1])
             
             
-        rollbackMaxCount = 3
         rollbackCount = 0
-        waitBeforeRollback = 15
         lastArrival = makespan
         
         while not(needReset) and (nbArrives < nbRobotsTotal) and ((optimizeMakespan and makespan<makespanMini) or (not(optimizeMakespan) and distance<distanceMini)):
@@ -833,5 +837,5 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
 #galaxy_cluster2_00003_50x50_25_625
 
 trouverSolution("small_000_10x10_20_10.instance", maxMakespan = 10000, optimizeMakespan = True,
-                timeMax=60, usePriorite=True)
+                timeMax=60, usePriorite=False, useShuffle=True, shuffleMin=0, shuffleMax = 2, probaRecalcul=0, deterministeMoy=100)
 
