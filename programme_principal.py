@@ -418,6 +418,8 @@ def ecarterProba(pilotes, nx, ny, margeX, margeY, temps):
     stepVideMaxCount = 10
     needReset = False
     stepVideCount = 0
+      
+    listePositionsRobots = [[elt.p for elt in pilotes]]
         
     while not(needReset) and makespan < temps:
         step = {}
@@ -447,6 +449,7 @@ def ecarterProba(pilotes, nx, ny, margeX, margeY, temps):
             makespan += 1
             stepVideCount = 0
             liste_steps.append(step)
+            listePositionsRobots.append([elt.p for elt in pilotes])
         else:
             stepVideCount += 1
             if stepVideCount >= stepVideMaxCount:
@@ -457,7 +460,7 @@ def ecarterProba(pilotes, nx, ny, margeX, margeY, temps):
     for p in pilotes:
         p.potentiel = potentiel
       
-    return liste_steps
+    return liste_steps, listePositionsRobots
             
 
 
@@ -571,7 +574,7 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
         # On met des params aléatoires
         [ elt.reset() for elt in pilotes]
         
-        liste_steps = ecarterProba(pilotes, nx, ny, margeX, margeY, random.randint(shffufleMin, nx + ny))
+        liste_steps, listePositionsRobots = ecarterProba(pilotes, nx, ny, margeX, margeY, random.randint(shffufleMin, nx + ny))
         for step in liste_steps:
             makespan += 1
             #solution.add_step(step)
@@ -604,11 +607,18 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
             needReset = True
         else:
             priorites = priorites[::-1]
+            
+            
+        rollbackMaxCount = 3
+        rollbackCount = 0
+        waitBeforeRollback = 15
+        lastArrival = makespan
         
         while not(needReset) and (nbArrives < nbRobotsTotal) and ((optimizeMakespan and makespan<makespanMini) or (not(optimizeMakespan) and distance<distanceMini)):
             step = {}
             #step = SolutionStep()
             #print(makespan)
+                
             
             if len(priorites[prio]) == 0:
                 prio += 1
@@ -641,7 +651,9 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
                 #index = monPilote.index
                 monPilote = pilotes[index]
                 pp = None # Action du robot (WAIT, SOUTH, NORTH, WEST, EAST)
-                if monPilote.p == monPilote.cible: 
+                if monPilote.p == monPilote.cible:
+                    lastArrival = makespan
+                    rollbackCount = 0
                     nbArrives += 1
                     #print("Le robot "+str(r)+" est arrivé à destination")
                     pp = Direction.WAIT
@@ -672,11 +684,29 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
                 makespan += 1
                 stepVideCount = 0
                 liste_steps.append(step)
+                listePositionsRobots.append([elt.p for elt in pilotes])
+                
+                #print("liste", makespan, len(listePositionsRobots))
                 #solution.add_step(step)
             else:
                 stepVideCount += 1
                 if stepVideCount >= stepVideMaxCount:
                     needReset = True
+                    
+                    
+            if makespan - lastArrival > waitBeforeRollback:
+                print("ROOOOOOOOLLLLLLLLLBACKKK !!!!!")
+                rollbackCount += 1
+                if rollbackCount >= rollbackMaxCount:
+                    print("\n", rollbackMaxCount, "ROLLBACK d'affilé -> reset\n")
+                    needReset = True
+                else:
+                    makespan = lastArrival
+                    liste_steps = liste_steps[:lastArrival+1]
+                    listePositionsRobots = listePositionsRobots[:lastArrival+2]
+                    
+                    for j in range(len(listePositionsRobots[-1])):
+                        pilotes[j].p = listePositionsRobots[-1][j]
 
 
         
