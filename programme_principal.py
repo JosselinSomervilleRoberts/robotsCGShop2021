@@ -232,30 +232,48 @@ def calculPriorites(pilotes):
 
 
 
-def calculPriorites2(pilotes):
+def calculPriorites2(pilotes, optimizeMakespan=True, tailleGroupeMax = None):
+    if tailleGroupeMax is None: tailleGroupeMax = len(pilotes)
     pasEncoreArrives = [p.index for p in pilotes]
     dejaArrives = []
     obstacles = []
     groupes = []
     distance = 0
     
+    distancesOpti = []
+    for p in pilotes:
+        p.carte.resetMap()
+        p.carte.bfs(p.cible[0], p.cible[1])
+        distancesOpti.append(p.carte.getValue(p.p))
+    
     while len(pasEncoreArrives) > 0:
-        groupes.append([])
-        #[pilotes[index].enleverObstacles(obstacles, recalculer=False) for index in pasEncoreArrives]
-        [pilotes[index].carte.resetMap() for index in pasEncoreArrives]
         obstacles = [pilotes[index].cible for index in pasEncoreArrives] + [pilotes[index].p for index in dejaArrives]
-        [pilotes[index].ajouterObstacles(obstacles, recalculer=True) for index in pasEncoreArrives]
-        ajout = False
+        for index in pasEncoreArrives:
+            pilotes[index].carte.resetMap()
+            pilotes[index].ajouterObstacles(obstacles, recalculer=True)
+        
+        possibles = []
         
         for index in copy(pasEncoreArrives):
             if pilotes[index].carte.getValue(pilotes[index].p) >= 0: # s'il existe un chemin
+                possibles.append(index)
+                
+                
+        if len(possibles) > 0:
+            possiblesSorted = sorted(possibles, key=lambda index: pilotes[index].carte.getValue(pilotes[index].p) - distancesOpti[index])
+            possiblesSorted = possiblesSorted[:tailleGroupeMax]
+            if optimizeMakespan:
+                groupes.append([])
+                
+            for index in possiblesSorted:
                 distance += pilotes[index].carte.getValue(pilotes[index].p)
-                groupes[-1].append(index)
                 pasEncoreArrives.remove(index)
                 dejaArrives.append(index)
-                ajout = True
-                
-        if not(ajout):
+                if optimizeMakespan:
+                    groupes[-1].append(index)
+                else:
+                    groupes.append([index])           
+        else:
             print("IMPOSSIBLE")
             print(pasEncoreArrives)
             print("\n")
@@ -843,7 +861,7 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
         priorites = [[elt.index for elt in pilotes]]
         prio = 0
         if usePriorite:
-            priorites = calculPriorites2(pilotes)
+            priorites = calculPriorites2(pilotes, optimizeMakespan, tailleGroupeMax=1)
             
             if priorites is None:
                 needReset = True
@@ -857,6 +875,13 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
         rollbackCount = 0
         lastArrival = makespan
         
+        # Save
+        savePrio = prio
+        saveDistance = distance
+        savePriorites = deepcopy(priorites)
+        saveIndexActifs = [elt.index for elt in pilotes]
+        saveIndexArrives = []
+        
         while not(needReset) and (nbArrives < nbRobotsTotal) and ((optimizeMakespan and makespan<makespanMini) or (not(optimizeMakespan) and distance<distanceMini)):
             step = {}
             #step = SolutionStep()
@@ -865,6 +890,13 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
             
             if len(priorites[prio]) == 0:
                 prio += 1
+                savePrio = prio
+                
+                if not(optimizeMakespan):
+                    for index in priorites[prio]:
+                        pilotes[index].ajouterObstacles([], recalculer=True)
+                        pilotes[index].r = 0
+                        pilotes[index].a = 0
                 """
                 for p in pilotes:
                     if p in priorites[prio]:
@@ -895,16 +927,25 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
                 monPilote = pilotes[index]
                 pp = None # Action du robot (WAIT, SOUTH, NORTH, WEST, EAST)
                 if monPilote.p == monPilote.cible:
+                    
+                    # SAUVERGARDE Pour le Rollback
                     lastArrival = makespan
                     rollbackCount = 0
+                    saveDistance = distance
+                    savePrio = prio
+                    savePriorites
+                    saveIndexArrives.append(index)
+                    saveIndexActifs.remove(index)
+                    if index in priorites[prio]: savePriorites[prio].remove(index)
+                    
+                    # Le robot arrive et attends
                     nbArrives += 1
-                    #print("Le robot "+str(r)+" est arrivé à destination")
                     pp = Direction.WAIT
                     pilotesArrives.append(monPilote)
                     pilotesActifs.remove(monPilote)
-                    #print("nbArrives =", nbArrives)
-                    if index in priorites[prio]:
-                        priorites[prio].remove(index)
+                    if index in priorites[prio]: priorites[prio].remove(index)
+                    
+                    # On mets à jour les obstacles des autres
                     for p in pilotes:
                         p.ajouterObstacles([monPilote.p], recalculer = random.random() <= probaRecalcul)
                 else :
@@ -945,11 +986,28 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
                     needReset = True
                 else:
                     makespan = lastArrival
+                    distance = saveDistance
+                    
+                    # On enlève les steps qu'on rollback ainsi que l historique des positions
                     liste_steps = liste_steps[:lastArrival+1]
                     listePositionsRobots = listePositionsRobots[:lastArrival+2]
                     
+                    # On replace les robots
                     for j in range(len(listePositionsRobots[-1])):
                         pilotes[j].p = listePositionsRobots[-1][j]
+                    
+                    # On remet en place les priorités et les robots en déplacement
+                    prio = savePrio
+                    priorites = deepcopy(savePriorites)
+                    pilotesActifs = [pilotes[index] for index in saveIndexActifs]
+                    pilotesArrives = [pilotes[index] for index in saveIndexArrives]
+                    
+                    # On recalcule tous les BFS
+                    obstacles = [p.cible for p in pilotesArrives]
+                    for p in pilotesActifs:
+                        p.carte.resetMap()
+                        p.ajouterObstacles(obstacles, recalculer=True)
+                        
 
 
         
@@ -1031,6 +1089,6 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
 #galaxy_cluster_00000_20x20_20_80
 #galaxy_cluster2_00003_50x50_25_625
 
-trouverSolution("small_free_001_10x10_40_40.instance", maxMakespan = 10000, optimizeMakespan = True,
-                timeMax=60, usePriorite=True, useShuffle=True, shuffleMin=25, shuffleMax = 26, probaRecalcul=0, deterministeMoy=100)
+trouverSolution("small_free_001_10x10_40_40.instance", maxMakespan = 10000, optimizeMakespan = False,waitBeforeRollback=50,
+                timeMax=60, usePriorite=True, useShuffle=True, shuffleMin=5, shuffleMax = 15, probaRecalcul=1, deterministeMoy=100)
 
