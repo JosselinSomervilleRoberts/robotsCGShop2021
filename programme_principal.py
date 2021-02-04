@@ -40,6 +40,12 @@ Z = 4
 directions = [NORD,SUD,EST,OUEST,ZERO]
 directions_utils = [Direction.NORTH,Direction.SOUTH,Direction.EAST,Direction.WEST,Direction.WAIT]
 
+
+def last_index(liste, elt):
+    for i in range(len(liste)-1,-1,-1):
+        if liste[i] == elt: return i
+    raise ExceptionError
+
 def index(d):
     if d==NORD:
         return N
@@ -262,23 +268,27 @@ def calculPriorites2(pilotes):
 
 
 
-def calculPrioritesWithoutStart(pilotes):
+def calculPrioritesWithoutStart(pilotes, nx, ny, margeX, margeY):
     pasEncoreArrives = [p.index for p in pilotes]
     dejaArrives = []
     obstacles = []
     groupes = []
     distance = 0
     
+    for p in pilotes:
+        p.p = getCibleExterieure(p.cible, nx, ny, margeX, margeY)
+    
     while len(pasEncoreArrives) > 0:
         groupes.append([])
-        #[pilotes[index].enleverObstacles(obstacles, recalculer=False) for index in pasEncoreArrives]
-        [pilotes[index].carte.resetMap() for index in pasEncoreArrives]
+        
         obstacles = [pilotes[index].cible for index in pasEncoreArrives] #+ [pilotes[index].p for index in dejaArrives]
-        [pilotes[index].ajouterObstacles(obstacles, recalculer=True) for index in pasEncoreArrives]
+        for index in pasEncoreArrives:
+            pilotes[index].carte.resetMap()
+            pilotes[index].ajouterObstacles(obstacles, recalculer=True)
         ajout = False
         
         for index in copy(pasEncoreArrives):
-            if pilotes[index].carte.getValue(pilotes[index].p) >= 0: # s'il existe un chemin
+            if 100 >= pilotes[index].carte.getValue(pilotes[index].p) >= 0: # s'il existe un chemin
                 distance += pilotes[index].carte.getValue(pilotes[index].p)
                 groupes[-1].append(index)
                 pasEncoreArrives.remove(index)
@@ -417,9 +427,10 @@ def ecarter(pilotes, list_boxs, etape=1):
 
 
 
-def ecarterProba(pilotes, nx, ny, margeX, margeY, temps):
+def ecarterProba(pilotes, nx, ny, margeX, margeY, temps, priorites=None):
     AJOUT_POTENTIEL = nx + ny
     
+    potentielNul = np.zeros((nx+2*margeX, ny+2*margeY))   
     potentiel = np.ones((nx+2*margeX, ny+2*margeY)) * (int(nx/2.0) + int(ny/2.0) + AJOUT_POTENTIEL)
     milieu = (margeX + int(nx/2.0), margeY + int(ny/2.0))
     
@@ -439,10 +450,12 @@ def ecarterProba(pilotes, nx, ny, margeX, margeY, temps):
         
     for p in pilotes:
         p.carte.resetMap()
+        cible_ext = getCibleExterieure(p.cible, nx, ny, margeX, margeY)
+        p.carte.bfs(cible_ext[0], cible_ext[1])
         p.potentiel = potentiel
         p.r = 5
         p.a = 1
-        p.d = 0
+        p.d = 50
         p.poisson = 3
         p.porteeRepulsion = 4
         p.attirancePotentiel = 10
@@ -456,20 +469,38 @@ def ecarterProba(pilotes, nx, ny, margeX, margeY, temps):
     stepVideCount = 0
       
     listePositionsRobots = [[elt.p for elt in pilotes]]
+    
+    prio = 0
+    newPrio = True
+    pilotesArrives = []
+    pilotesActifs = [elt for elt in pilotes]
         
     while not(needReset) and makespan < temps:
         step = {}
         #step = SolutionStep()
         #print(makespan)
+        
+        if not(priorites is None) and newPrio:
+            newPrio = False
+            for index in priorites[prio]:
+                p = pilotes[index]
+                p.carte.bfs(p.cible[0], p.cible[1])
+                p.potentiel = potentielNul
+            
+            pilotesActifs = []
+            for groupe_prio in priorites[prio:]:
+                for index_robot in groupe_prio:
+                    pilotesActifs.append(pilotes[index_robot])
                 
         stepIsEmpty = True # Booléen qui nous permettra de ne pas ajouter des steps inutiles
             
         # Anciennes positions des robots, à enlever au prochain pas
         cases_prises = [(elt.p[0], elt.p[1], Direction.WAIT) for elt in pilotes] # Cases inaccessibles
             
-        for monPilote in pilotes:
+        for monPilote in pilotesActifs:
             previousPosPilote = monPilote.p
             pp = monPilote.pas_probabiliste(cases_prises)
+            
             if pp != Direction.WAIT: # Si le robot bouge, le pas n'est pas inutile
                 stepIsEmpty = False
                 distance += 1
@@ -478,6 +509,19 @@ def ecarterProba(pilotes, nx, ny, margeX, margeY, temps):
                         
                 cases_prises.remove((previousPosPilote[0], previousPosPilote[1], Direction.WAIT))
                 cases_prises.append((previousPosPilote[0], previousPosPilote[1], monPilote.lastDir))
+                
+            if not(priorites is None) and monPilote.index in priorites[prio] and monPilote.p == monPilote.cible:
+                pilotesArrives.append(monPilote)
+                pilotesActifs.remove(monPilote)
+                if index in priorites[prio]:
+                    priorites[prio].remove(index)
+                for p in pilotes:
+                    p.ajouterObstacles([monPilote.p], recalculer = p.index in priorites[prio])
+                    
+                if len(priorites[prio]) == 0:
+                    newPrio = True
+                    prio += 1
+                    
             step[monPilote.index] = pp
                 
                 
@@ -492,17 +536,166 @@ def ecarterProba(pilotes, nx, ny, margeX, margeY, temps):
                 needReset = True
                 
            
-    potentiel = np.zeros((nx+2*margeX, ny+2*margeY))           
+            
     for p in pilotes:
-        p.potentiel = potentiel
+        p.potentiel = potentielNul
       
     return liste_steps, listePositionsRobots
+
+
+
+
+
+def nettoyage_steps(steps, pilotes, suivi):
+    nx = pilotes[0].carte.nx
+    ny = pilotes[0].carte.ny
+    nb_robots = len(pilotes)
+    makespan = len(steps)
+
+    T = np.zeros((makespan+1,nx,ny),dtype=int)-1
+
+
+    for t in range(len(steps)+1) :
+        for r in range(nb_robots):
+            T[t,suivi[t][r][0],suivi[t][r][1]]=r
+
+    
+    first = True
+    d = 0
+    while first or d > 0:
+        d = 0
+        first = False
+        for x in range(nx):
+            for y in range(ny):
+                dernier_visiteur = T[0,x,y]
+                derniere_visite = 0
+                vide =  (dernier_visiteur ==-1 )
+                for t in range(1,makespan+1):
+                    contenu = T[t,x,y]
+                    
+                    if contenu ==-1 :
+                        vide = True
+                    elif contenu == dernier_visiteur and vide :
+                        vide = False
+                        
+                        for pas in range(derniere_visite,t):
+                            if dernier_visiteur in steps[pas].keys():
+                                d += 1
+                                del steps[pas][dernier_visiteur]
+                        for pas in range(derniere_visite+1,t):
+                            T[pas,suivi[pas][dernier_visiteur][0],suivi[pas][dernier_visiteur][1]] = -1
+                            suivi[pas][dernier_visiteur] = (x,y)
+                        vide = False
+                        derniere_visite = t
+                    else :
+                        vide = False
+                        dernier_visiteur = contenu
+                        derniere_visite = t
+                        
+                    
+    #j=0
+    for i in reversed(range(len(steps))):
+        if not steps[i]:
+            steps.pop(i)
+            #j+=1
+    #print("gagné "+ str(j) +" en makespan")
+
+    return steps
+
+
+
+def getCibleExterieure(cible, nx, ny, margeX, margeY):
+    ix = (cible[0] - int(nx/2.0) - margeX )
+    iy = (cible[1] - int(ny/2.0) - margeY)
+    
+    cibleExtX = int(margeX/2.0) + (ix>0)*(nx + margeX)
+    cibleExtY = int(margeY/2.0) + (iy>0)*(ny + margeY)
+    
+    if abs(ix) <= abs(iy):
+        return (cible[0], cibleExtY)
+    else:
+        return (cibleExtX, cible[1])
+    
             
 
+def nettoyage_stepsFonctionnePas(steps, pilotes, suivi):
+    nx = pilotes[0].carte.nx
+    ny = pilotes[0].carte.ny
+    nb_robots = len(pilotes)
+    makespan = len(steps)
+
+    T = np.zeros((makespan+1,nx,ny),dtype=np.short)-1
 
 
-def nettoyage_steps(liste_steps, pilotes, liste_positions):
-    return liste_steps
+    for t in range(len(steps)+1) :
+        for r in range(nb_robots):
+            T[t,suivi[t][r][0],suivi[t][r][1]]=r
+
+    
+    #print(T)
+    cycles = {}
+    for x in range(nx):
+        for y in range(ny):
+            dernier_visiteur = T[0,x,y]
+            derniere_visite = 0
+            
+            visiteurs = []
+            visites = []
+            for t in range(0,makespan+1):
+                contenu = T[t,x,y]
+                
+                if contenu ==-1 :
+                    pass
+                elif len(visiteurs) == 0:
+                    visiteurs = [contenu]
+                    visites = [t]
+                elif contenu in visiteurs:
+                    index_derniere_visite = last_index(visiteurs, contenu)
+                    if not contenu in cycles: cycles[contenu] = []
+                    cycles[contenu].append([(x,y), visites[index_derniere_visite], t, visiteurs[index_derniere_visite+1:], visites[index_derniere_visite+1:]])
+                else:
+                    visiteurs.append(contenu)
+                    visites.append(t)
+                    
+
+    for robot in cycles.keys():
+        i_c = 0
+        while not(cycles[robot] is None) and i_c < len(cycles[robot]):
+            #for i_c in range(len(cycles[robot])):
+            cycle = cycles[robot][i_c]
+            (x,y) = cycle[0]
+            derniere_visite = cycle[1]
+            t = cycle[2]
+            visiteurs = cycle[3]
+            visites = cycle[4]
+            
+            if len(visiteurs) == 0:
+                for pas in range(derniere_visite,t):
+                    if robot in steps[pas].keys():
+                        del steps[pas][robot]
+                for pas in range(derniere_visite+1,t):
+                    T[pas,suivi[pas][robot][0],suivi[pas][robot][1]] = -1
+                    suivi[pas][robot] = (x,y)
+                    
+                j = i_c+1
+                while not(cycles[robot] is None) and j < len(cycles[robot]):
+                    autre_cycle = cycles[robot][j]
+                    if derniere_visite <= autre_cycle[1] <= t or derniere_visite <= autre_cycle[2] <= t:
+                        cycles[robot].pop(j)
+                    else:
+                        j+=1
+            
+                cycles[robot].pop(i_c)
+            else:
+                i_c += 1
+      
+    keys = [elt for elt in cycles.keys()]
+    for key in keys:
+        if len(cycles[key]) == 0:
+            cycles.pop(key,None)
+    print(cycles)
+    return steps
+
             
     
    
@@ -590,6 +783,8 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
     # Quelques paramètres en plus
     if probaRecalcul is None: probaRecalcul = min(1.0, max(0.01, 40.0/len(pilotes)))
     if rayon is None: rayon = int(max(nx, ny) / 5.0)
+    
+    newPrio = (calculPrioritesWithoutStart(pilotes, nx, ny, margeX, margeY))[::-1]
         
         
     
@@ -618,7 +813,7 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
         # On met des params aléatoires
         [ elt.reset() for elt in pilotes]
         
-        liste_steps, listePositionsRobots = ecarterProba(pilotes, nx, ny, margeX, margeY, random.randint(shuffleMin, shuffleMax))
+        liste_steps, listePositionsRobots = ecarterProba(pilotes, nx, ny, margeX, margeY, random.randint(shuffleMin, shuffleMax), newPrio)
         for step in liste_steps:
             makespan += 1
             #solution.add_step(step)
@@ -836,6 +1031,6 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
 #galaxy_cluster_00000_20x20_20_80
 #galaxy_cluster2_00003_50x50_25_625
 
-trouverSolution("small_000_10x10_20_10.instance", maxMakespan = 10000, optimizeMakespan = True,
-                timeMax=60, usePriorite=False, useShuffle=True, shuffleMin=0, shuffleMax = 2, probaRecalcul=0, deterministeMoy=100)
+trouverSolution("small_free_001_10x10_40_40.instance", maxMakespan = 10000, optimizeMakespan = True,
+                timeMax=60, usePriorite=True, useShuffle=True, shuffleMin=25, shuffleMax = 26, probaRecalcul=0, deterministeMoy=100)
 

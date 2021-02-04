@@ -4,12 +4,12 @@ import json
 # ================= A CHANGER ====================== #
 size_x = 880
 size_y = 980
-start_x = -30
-start_y = -30
-nx = 110
-ny = 110
-map_file = '../datasets/galaxy_cluster2_00003_50x50_25_625.instance.json'
-sol_file = '../solutions/galaxy_cluster2_00003_50x50_25_625.instance/2021_02_03_05_44_59_1___mdr.json'
+start_x = -7
+start_y = -7
+nx = 24
+ny = 24
+map_file = '../datasets/small_free_001_10x10_40_40.instance.json'
+sol_file = '../solutions/small_free_001_10x10_40_40.instance/2021_02_04_19_21_19_1___g.json'
 nbInterMoves = 10
 # ================================================== #
 
@@ -111,6 +111,8 @@ def showRobots():
             fill(0,255,0)
         else:
             fill(0,255,0,255-127*transparence)
+        if i==4:
+            fill(0,0,0)
         
         if data['targets'][i][0] == int(round(x,0)) and data['targets'][i][1] == int(round(y,0)):
             fill(255,0,255)
@@ -140,6 +142,8 @@ def showTargets():
             fill(255,0,0)
         else:
             fill(255,0,0, 255 - 127*transparence)
+        if i==4:
+            fill(50,50,50)
         
         if int(round(pos_robots[i][0],0)) == x and int(round(pos_robots[i][1],0)) == y:
             fill(255,0,255)
