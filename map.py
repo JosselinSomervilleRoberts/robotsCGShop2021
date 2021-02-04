@@ -98,12 +98,23 @@ class Map:
         if (y < self.ny - 1 and self.map[x][y+1].distance != OBS) :
             L.append((x,y+1))
         return L
+    
+    
+    def remettreAZero(self):
+        for ligne in self.map:
+            for case in ligne:
+                if case.distance >= 0:
+                    case.distance = NOT_CALCULATED
+        self.aEteCaclcule = False
         
         
     def bfs(self, x, y, L=None):
         nbACalculer = 0
         distActuelle = 100000
         if L is None:
+            if not(self.cible is None) and self.cible != self.map[x][y]:
+                self.remettreAZero()
+                
             cible = self.map[x][y]
             cible.distance = 0
             self.cible = cible

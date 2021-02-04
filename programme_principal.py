@@ -262,6 +262,42 @@ def calculPriorites2(pilotes):
 
 
 
+def calculPrioritesWithoutStart(pilotes):
+    pasEncoreArrives = [p.index for p in pilotes]
+    dejaArrives = []
+    obstacles = []
+    groupes = []
+    distance = 0
+    
+    while len(pasEncoreArrives) > 0:
+        groupes.append([])
+        #[pilotes[index].enleverObstacles(obstacles, recalculer=False) for index in pasEncoreArrives]
+        [pilotes[index].carte.resetMap() for index in pasEncoreArrives]
+        obstacles = [pilotes[index].cible for index in pasEncoreArrives] #+ [pilotes[index].p for index in dejaArrives]
+        [pilotes[index].ajouterObstacles(obstacles, recalculer=True) for index in pasEncoreArrives]
+        ajout = False
+        
+        for index in copy(pasEncoreArrives):
+            if pilotes[index].carte.getValue(pilotes[index].p) >= 0: # s'il existe un chemin
+                distance += pilotes[index].carte.getValue(pilotes[index].p)
+                groupes[-1].append(index)
+                pasEncoreArrives.remove(index)
+                dejaArrives.append(index)
+                ajout = True
+                
+        if not(ajout):
+            print("IMPOSSIBLE")
+            print(pasEncoreArrives)
+            print("\n")
+            print(groupes)
+            return None
+                
+        
+    print("Distance = ", distance)
+    return groupes
+
+
+
 
 def getBoxes(pilotes, xStart, yStart, widthX, widthY):
     boxs = [[[xStart,yStart,widthX,widthY, pilotes]]]
@@ -465,7 +501,7 @@ def ecarterProba(pilotes, nx, ny, margeX, margeY, temps):
 
 
 
-def nettoyage_steps(liste_steps):
+def nettoyage_steps(liste_steps, pilotes, liste_positions):
     return liste_steps
             
     
@@ -487,7 +523,11 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
                     repulsionMoy=2, repulsionVariation=1,
                     aleatoireMoy=1.5, aleatoireVariation=1,
                     deterministeMoy=30, deterministeVariation=12,
-                    poissonMoy=5, poissonVariation=3):
+                    poissonMoy=5, poissonVariation=3,
+                    useShuffle=True, usePriorite=True,
+                    shuffleMin=None, shuffleMax=None,
+                    probaRecalcul=None, rayon=None,
+                    margeX=None, margeY=None):
     """
     Recherche une solution optimale (en makespan ou distance)
     Parameters
@@ -508,53 +548,51 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
     None.
     """
     
-    s = input("Nom de l'enregistrement du fichier ? (\"No\" pour ne pas sauvegarder)\n")
-
     # Chargement du fichier
     idb = InstanceDatabase("datasets.zip")
-    rayon = 5
-    probaRecalcul = 0.05
-    shffufleMin = 10
-    
-
     i= idb[file]
     
+    
+    
+    # On récupère les dimensions de la map
     nx = 1 + max([i.start_of(r)[0] for r in range(i.number_of_robots)])
     ny = 1 + max([i.start_of(r)[1] for r in range(i.number_of_robots)])
     
-    # On rajoute la marge
-    margeX = int(2*nx/3.0)
-    margeY = int(2*ny/3.0)
+    # On agrandit la map avec les marges
+    if margeX is None: margeX = int(2*nx/3.0)
+    if margeY is None: margeY = int(2*ny/3.0)
     tailleX = nx + 2*margeX
     tailleY = ny + 2*margeY
-    print(nx, ny)
     
-    
-    dim = 1
-    groups = [[], []]
-    
-    """
-    for robot in pilotes:
-        for ix in range(2):
-            for iy in range(2):
-                if int(ix*tailleBox/2.0) <= robot.depart[0] < int((ix*tailleBox/2.0)
-    
-    """
-    # Recherche de la solution
-    solution = None 
-    
-    pilotes = []
+    # On récupère les obstacles que l'on décale à cause de la marge
     obstacles_decales = [ (a+margeX,b+margeY) for (a,b) in i.obstacles]
-        
+    
+    # On récupère tous les robots que l'on décale également
+    pilotes = [] 
     for r in range(i.number_of_robots):
         cible_decalee = (i.target_of(r)[0] + margeX, i.target_of(r)[1] + margeY)
         depart_decale = (i.start_of(r)[0] + margeX, i.start_of(r)[1] + margeY)
         pilotes.append(Pilote(r, tailleX, tailleY, cible_decalee, depart_decale, obstacles_decales))
-         
+        
     
-    print("Pilotes initialisés")
     
-    #print(calculPriorites2(pilotes))
+    # On définit les bornes pour le nombre d'étapes de l'écartement (on écarte pendant un temps entre shuffleMin et shuffleMax)
+    if shuffleMax is None: shuffleMax = max(nx, ny)
+    if shuffleMin is None: shuffleMin = min(max(int(nx/2.0), int(ny/2.0)), shuffleMax)    
+    if not(useShuffle): shuffleMin, shuffleMax = 0, 0
+    
+    # Quelques paramètres en plus
+    if probaRecalcul is None: probaRecalcul = min(1.0, max(0.01, 40.0/len(pilotes)))
+    if rayon is None: rayon = int(max(nx, ny) / 5.0)
+        
+        
+    
+    # On récupère le nom du fichier pour l'enregistrement des solutions
+    s = input("Nom de l'enregistrement du fichier ? (\"No\" pour ne pas sauvegarder)\n")
+
+
+    
+
     makespanMini = maxMakespan
     distanceMini = maxDistance
     nbAmeliorations = 0
@@ -574,7 +612,7 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
         # On met des params aléatoires
         [ elt.reset() for elt in pilotes]
         
-        liste_steps, listePositionsRobots = ecarterProba(pilotes, nx, ny, margeX, margeY, random.randint(shffufleMin, nx + ny))
+        liste_steps, listePositionsRobots = ecarterProba(pilotes, nx, ny, margeX, margeY, random.randint(shuffleMin, shuffleMax))
         for step in liste_steps:
             makespan += 1
             #solution.add_step(step)
@@ -599,14 +637,20 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
         stepVideCount = 0
         stepVideMaxCount = 20
         
-        priorites = calculPriorites2(pilotes)
-        #print(priorites)
-        prio = 0
         
-        if priorites is None:
-            needReset = True
+        
+        priorites = [[elt.index for elt in pilotes]]
+        prio = 0
+        if usePriorite:
+            priorites = calculPriorites2(pilotes)
+            
+            if priorites is None:
+                needReset = True
+            else:
+                priorites = priorites[::-1]
         else:
-            priorites = priorites[::-1]
+            for p in pilotes:
+                p.carte.bfs(p.cible[0], p.cible[1])
             
             
         rollbackMaxCount = 3
@@ -710,7 +754,7 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
 
 
         
-        liste_steps = nettoyage_steps(liste_steps)
+        liste_steps = nettoyage_steps(liste_steps, pilotes, listePositionsRobots)
         solution = getSolution(i, liste_steps)
 
         # On est sortis de la boucle
@@ -788,16 +832,6 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
 #galaxy_cluster_00000_20x20_20_80
 #galaxy_cluster2_00003_50x50_25_625
 
-trouverSolution("small_free_001_10x10_40_40.instance", maxMakespan = 10000, optimizeMakespan = True,
-                timeMax=60)
-"""
+trouverSolution("small_000_10x10_20_10.instance", maxMakespan = 10000, optimizeMakespan = True,
+                timeMax=60, usePriorite=True)
 
-b = getBoxes([], 10, 10)
-i = 1
-for line in b:
-    print("\n")
-    print("dim =", i)
-    print(line)
-    i+=1
-    
-"""
