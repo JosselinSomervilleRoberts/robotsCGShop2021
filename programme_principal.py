@@ -420,7 +420,8 @@ def ecarterProba(pilotes, nx, ny, margeX, margeY, temps):
     stepVideCount = 0
         
     while not(needReset) and makespan < temps:
-        step = SolutionStep()
+        step = {}
+        #step = SolutionStep()
         #print(makespan)
                 
         stepIsEmpty = True # Booléen qui nous permettra de ne pas ajouter des steps inutiles
@@ -458,9 +459,24 @@ def ecarterProba(pilotes, nx, ny, margeX, margeY, temps):
       
     return liste_steps
             
+
+
+
+def nettoyage_steps(liste_steps):
+    return liste_steps
             
     
-                
+   
+def getSolution(i, liste_steps):
+    s = Solution(i)
+    
+    for step_dict in liste_steps:
+        step = SolutionStep()
+        for robot in step_dict.keys():
+            step[robot] = step_dict[robot]
+        s.add_step(step)
+        
+    return s
             
 
 
@@ -543,7 +559,7 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
     
     tStart = time.time()
     while time.time() - tStart < timeMax:
-        solution = Solution(i)
+        #solution = Solution(i)
         
         # Nombre de robots arrivés à leur cible
         nbArrives = 0
@@ -556,10 +572,9 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
         [ elt.reset() for elt in pilotes]
         
         liste_steps = ecarterProba(pilotes, nx, ny, margeX, margeY, random.randint(shffufleMin, nx + ny))
-        solution = Solution(i)
         for step in liste_steps:
             makespan += 1
-            solution.add_step(step)
+            #solution.add_step(step)
             
         for p in pilotes:
             p.carte.bfs(p.cible[0], p.cible[1])
@@ -591,7 +606,8 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
             priorites = priorites[::-1]
         
         while not(needReset) and (nbArrives < nbRobotsTotal) and ((optimizeMakespan and makespan<makespanMini) or (not(optimizeMakespan) and distance<distanceMini)):
-            step = SolutionStep()
+            step = {}
+            #step = SolutionStep()
             #print(makespan)
             
             if len(priorites[prio]) == 0:
@@ -647,18 +663,25 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
                         
                         cases_prises.remove((previousPosPilote[0], previousPosPilote[1], Direction.WAIT))
                         cases_prises.append((previousPosPilote[0], previousPosPilote[1], monPilote.lastDir))
-                step[monPilote.index] = pp
+                        
+                if pp != Direction.WAIT:
+                    step[monPilote.index] = pp
                 
                 
             if not(stepIsEmpty):
                 makespan += 1
                 stepVideCount = 0
-                solution.add_step(step)
+                liste_steps.append(step)
+                #solution.add_step(step)
             else:
                 stepVideCount += 1
                 if stepVideCount >= stepVideMaxCount:
                     needReset = True
 
+
+        
+        liste_steps = nettoyage_steps(liste_steps)
+        solution = getSolution(i, liste_steps)
 
         # On est sortis de la boucle
         nbEssais += 1
