@@ -94,7 +94,7 @@ class Pilote :
     def ajouterObstacles(self, liste_obs, recalculer=True):
         self.carte.ajouterObstacles(liste_obs)
         if recalculer:
-            self.carte.bfs_nouveaux_obstacles(liste_obs)
+            self.carte.bfs_nouveaux_obstacles()
             
             
     def enleverObstacles(self, liste_obs, recalculer=True):
@@ -421,7 +421,7 @@ def ecarterProba(pilotes, nx, ny, margeX, margeY, temps):
         
     while not(needReset) and makespan < temps:
         step = SolutionStep()
-        print(makespan)
+        #print(makespan)
                 
         stepIsEmpty = True # Booléen qui nous permettra de ne pas ajouter des steps inutiles
             
@@ -495,7 +495,7 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
     idb = InstanceDatabase("datasets.zip")
     rayon = 5
     probaRecalcul = 0.05
-    shffufleMin = 50
+    shffufleMin = 10
     
 
     i= idb[file]
@@ -592,7 +592,7 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
         
         while not(needReset) and (nbArrives < nbRobotsTotal) and ((optimizeMakespan and makespan<makespanMini) or (not(optimizeMakespan) and distance<distanceMini)):
             step = SolutionStep()
-            print(makespan)
+            #print(makespan)
             
             if len(priorites[prio]) == 0:
                 prio += 1
@@ -733,8 +733,9 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
 #"small_free_001_10x10_40_40.instance"
 #"universe_bgradiation_00009_100x100_80_8000"
 #galaxy_cluster_00000_20x20_20_80
+#galaxy_cluster2_00003_50x50_25_625
 
-trouverSolution("galaxy_cluster2_00003_50x50_25_625.instance", maxMakespan = 10000, optimizeMakespan = True,
+trouverSolution("small_free_001_10x10_40_40.instance", maxMakespan = 10000, optimizeMakespan = True,
                 timeMax=60)
 """
 

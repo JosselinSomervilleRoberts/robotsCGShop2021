@@ -29,6 +29,7 @@ class Case:
         self.distance = NOT_CALCULATED
         self.fils = []
         self.parent = []
+        self.obstaclesAreclaculer = []
 
 
 
@@ -41,6 +42,7 @@ class Map:
         self.obstaclesPermanents = []
         self.resetMap()
         self.aEteCaclcule = False
+        self.obstaclesAreclaculer = []
         
         
     def getValue(self, pos):
@@ -53,11 +55,14 @@ class Map:
         self.map = [[Case(x,y) for y in range(self.ny)] for x in range(self.nx)]
         self.ajouterObstacles(self.obstaclesPermanents)
         self.aEteCaclcule = False
+        self.obstaclesAreclaculer = []
         
     def ajouterObstacles(self, obstacles):
         for obs in obstacles:
             (x, y) = obs
             self.map[x][y].distance = OBS
+            if not(self.map[x][y]) in self.obstaclesAreclaculer:
+                self.obstaclesAreclaculer.append(self.map[x][y])
             
     def enleverObstacles(self, obstacles):
         for obs in obstacles:
@@ -66,9 +71,7 @@ class Map:
             
     def ajouterObstaclesPermanents(self, obstacles):
         self.obstaclesPermanents += [obs for obs in obstacles]
-        for obs in obstacles:
-            (x, y) = obs
-            self.map[x][y].distance = OBS
+        self.ajouterObstacles(obstacles)
         
     def getVoisins(self, node):
         L = []
@@ -98,34 +101,53 @@ class Map:
         
         
     def bfs(self, x, y, L=None):
+        nbACalculer = 0
+        distActuelle = 100000
         if L is None:
             cible = self.map[x][y]
             cible.distance = 0
             self.cible = cible
-            L = [cible]
+            L = {0: [cible]}
+            distActuelle = 0
+            nbACalculer = 1
+        else:
+            for dist in L.keys():
+                nbACalculer += len(L[dist])
+                if dist < distActuelle: distActuelle = dist
         
-        while len(L) > 0:
-            current = L.pop(0)
+        
+        while nbACalculer > 0:
+            while distActuelle in L and len(L[distActuelle]) == 0:
+                distActuelle+=1
+            if distActuelle+1 not in L:
+                L[distActuelle+1] = []
+                
+            current = L[distActuelle].pop(0)
+            nbACalculer -= 1
             voisins = self.getVoisins(current)
             
             for v in voisins:
                 if v.distance == NOT_CALCULATED:
                     v.distance = current.distance + 1
-                    L.append(v)
+                    L[current.distance + 1].append(v)
+                    nbACalculer += 1
                     v.parent.append(current)
                     current.fils.append(v)
                 elif v.distance > current.distance + 1:
                     v.distance = current.distance + 1
-                    L.append(v)
+                    L[current.distance + 1].append(v)
+                    nbACalculer += 1
                     v.parent = [current]
         
         self.aEteCaclcule = True
                     
                     
                     
-    def bfs_nouveaux_obstacles(self, obstacles):
+    def bfs_nouveaux_obstacles(self):
+        # Si on a jamais calculé le chemin, on le fait normalement
         if not(self.aEteCaclcule):
             if not(self.cible is None):
+                self.obstaclesAreclaculer = []
                 self.bfs(self.cible.x, self.cible.y)
             else:
                 raise Exception("BFS_nouveaux_obstacles appelé sans calcul préalable du BFS ni cible")
@@ -134,7 +156,10 @@ class Map:
         
         L = []
         
-        L1 = [self.map[elt[0]][elt[1]] for elt in obstacles]
+        # Pour chaque nouveau obstacle, on regarde ses fils et si ses fils n'avaient que lui comme parent alors il faut les recalculer
+        # Pour recacluler on ajoute à la liste L
+        # On enlève toutes les relations de parenté qui ne sont plus d'actualité
+        L1 = self.obstaclesAreclaculer
         while len(L1) > 0:
             obs = L1.pop(0)
             for filsss in obs.fils:
@@ -152,7 +177,7 @@ class Map:
                     
             obs.parent = []
             
-        nouveauL = []
+        nouveauL = {}
         while len(L) > 0:
             current = L.pop()
             voisins = self.getVoisins(current)
@@ -167,6 +192,7 @@ class Map:
                     elif v.distance == voisinsPlusProches[0].distance:
                         voisinsPlusProches.append(v)
                         
+            # On a trouvé un voisin qui n'est ni un mur, ni une case non calculée
             if len(voisinsPlusProches) > 0: # On peut calculer le chemin
                 current.parent = voisinsPlusProches
                 current.distance = current.parent[0].distance +1
@@ -179,9 +205,13 @@ class Map:
                     if (v.distance == NOT_CALCULATED or v.distance > current.distance +1) and not(v in L):
                         aRevoir = True
                 
-                if aRevoir: nouveauL.append(current)
+                if aRevoir:
+                    if current.distance not in nouveauL: nouveauL[current.distance] = []
+                    nouveauL[current.distance].append(current)
                 
-        self.bfs(None, None, sorted(nouveauL, key=lambda x: x.distance))
+        #self.bfs(None, None, sorted(nouveauL, key=lambda x: x.distance))
+        self.bfs(None, None, nouveauL)
+        self.obstaclesAreclaculer = []
         
                         
     def show(self):

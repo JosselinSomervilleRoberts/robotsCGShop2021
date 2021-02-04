@@ -215,7 +215,7 @@ def setup():
     size(size_x, size_y)
     s = min(int(size_x/float(nx)), int(size_y-100/float(ny)))
     
-    if s<=8:
+    if s<=6:
         optimise = True
         
     loadData()
