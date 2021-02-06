@@ -22,7 +22,17 @@ import zipfile
 import shutil
 import glob
 from map import Map
+from progressBar import ProgressBar
 from datetime import datetime
+
+import pickle
+import ujson
+
+def copyPickle(a):
+    return pickle.loads(pickle.dumps(a, -1))
+
+def copyJson(a):
+    return ujson.loads(ujson.dumps(a))
 
 
 INFINITY = 99
@@ -41,10 +51,6 @@ directions = [NORD,SUD,EST,OUEST,ZERO]
 directions_utils = [Direction.NORTH,Direction.SOUTH,Direction.EAST,Direction.WEST,Direction.WAIT]
 
 
-def last_index(liste, elt):
-    for i in range(len(liste)-1,-1,-1):
-        if liste[i] == elt: return i
-    raise ExceptionError
 
 def index(d):
     if d==NORD:
@@ -67,6 +73,8 @@ def dist(t1,t2):
 
 class Pilote :
     
+    __slots__ = ('depart', 'p', 'index', 'cible', 'dernier_pas', 'lastDir', 'carte', 'potentiel', 'r', 'a', 'd', 'poisson', 'porteeRepulsion', 'attirancePotentiel')
+    
     
     def __init__(self, index, nx, ny, cible, depart, obstacles=None):
         self.depart = depart # case de de depart
@@ -81,7 +89,7 @@ class Pilote :
             self.carte.ajouterObstaclesPermanents(obstacles)
         self.carte.setCible(cible)
         
-        self.potentiel = np.zeros((nx,ny))
+        self.potentiel = None#np.zeros((nx,ny))
         
         self.r = 0.3
         self.a = 0.2
@@ -95,6 +103,10 @@ class Pilote :
         self.dernier_pas =ZERO
         self.carte.resetMap()
         #self.calculerChemin()
+        
+        
+    def calculChemin(self, cible):
+        self.carte.bfs(cible[0], cible[1], distmax=500000+dist(self.p, cible))
         
         
     def ajouterObstacles(self, liste_obs, recalculer=True):
@@ -114,11 +126,12 @@ class Pilote :
         return self.carte.map[self.p[0]][self.p[1]]
     
     
-    def params(self,r,a,d, poisson):
+    def params(self,r,a,d, poisson, pr):
         self.r = r
         self.a = a
         self.d = d
         self.poisson = poisson
+        self.porteeRepulsion = pr
         
     def move(self, inc):
         self.p = (self.p[0]+inc[0],self.p[1]+inc[1])
@@ -134,8 +147,6 @@ class Pilote :
         p = self.p
         cases_prises_relat = [ (r[0]-p[0],r[1]-p[1], r[2]) for r in cases_prises]
         poids_direction = [ 0 for i in range(5)]
-        
-        
         decisions_possibles = [ (elt[0]-p[0],elt[1]-p[1]) for elt in self.carte.getVoisinsXY(p)] + [(0,0)]
 
         
@@ -168,8 +179,16 @@ class Pilote :
         for c in cases_prises_proches :
             for d in decisions_possibles :
                 dis = dist(c,d)
-                if dis > 0:
+                if self.porteeRepulsion >= dis > 0:
                     poids_direction[index(d)]-=REPULSION / dis
+            
+        """
+        for c in self.aEviter :
+            for d in decisions_possibles :
+                dis = dist((c[0]-p[0], c[1]-p[1]),d)
+                if self.porteeRepulsion >= dis > 0:
+                    poids_direction[index(d)]-= 10*REPULSION / dis
+        """
         
         for d in decisions_possibles :
             d_abs = (p[0]+d[0],p[1]+d[1])
@@ -179,7 +198,8 @@ class Pilote :
             if delta > 0: delta *= DETERMINISTE
             
             # Potentiel
-            delta += self.attirancePotentiel * (self.potentiel[d_abs] - self.potentiel[p])
+            if not(self.potentiel is None):
+                delta += self.attirancePotentiel * (self.potentiel[d_abs] - self.potentiel[p])
             
             # Rester collé à un robot voisin
             if d in sameDir:
@@ -206,55 +226,62 @@ class Pilote :
         
 
 
-"""
-def calculPriorites(pilotes):
-    pasEncoreArrives = [(p.cible, p.index) for p in pilotes]
-    groupes = []
-    
-    while len(pasEncoreArrives) > 0:
-        groupes.append([])
-        onlyCasesArrives = [elt[0] for elt in pasEncoreArrives]
-        [pilotes[elt[1]].ajouterObstacles(onlyCasesArrives) for elt in pasEncoreArrives]
-        toRemove = []
-        for elt in pasEncoreArrives:
-            (case_arrivee, index) = elt
-            if pilotes[index].T[(0,0)] >= 0: #pilotes[index].p
-                groupes[-1].append(index)
-                toRemove.append(elt)
-                
-        for elt in toRemove:
-            pasEncoreArrives.remove(elt)
-            
-        [pilotes[elt[1]].enleverObstacles([elt[0] for elt in toRemove], recalculer=False) for elt in pasEncoreArrives]
-            
-    return groupes
-"""
 
 
 
-def calculPriorites2(pilotes, optimizeMakespan=True, tailleGroupeMax = None):
+def calculPriorites2(pilotes, pilotesActifs, pilotesArrives, optimizeMakespan=True, tailleGroupeMax = None, debug=False):
     if tailleGroupeMax is None: tailleGroupeMax = len(pilotes)
-    pasEncoreArrives = [p.index for p in pilotes]
+    
+    pasEncoreArrives = [p.index for p in pilotesActifs]
+    obstaclesPerm = [p.cible for p in pilotesArrives]
     dejaArrives = []
-    obstacles = []
     groupes = []
     distance = 0
+    
+    prog = None
+    arrives = 0
+    groupe = 0
+    if debug:
+        prog = ProgressBar(len(pilotes), prefix = 'Groupe: ref', showEstimatedTime=False)
+        prog.printTitle("Calcul Priorités 2")
     
     distancesOpti = []
     for p in pilotes:
         p.carte.resetMap()
-        p.carte.bfs(p.cible[0], p.cible[1])
+        p.carte.setCible(p.cible)
+        p.ajouterObstacles(obstaclesPerm, recalculer=True)
+        #p.calculChemin(p.cible)
         distancesOpti.append(p.carte.getValue(p.p))
+        
+        if debug:
+            arrives +=1
+            if arrives % 10 == 0: prog.printP(arrives)
+            
+    if debug: prog.stop()
     
     while len(pasEncoreArrives) > 0:
-        obstacles = [pilotes[index].cible for index in pasEncoreArrives] + [pilotes[index].p for index in dejaArrives]
+        if debug:
+            groupe += 1
+            arrives = 0
+            prog = ProgressBar(len(pasEncoreArrives), prefix = 'Groupe: ' + str(groupe) + ' ' * (3-len(str(groupe))), suffix = '   Robots restants = ' + str(len(pasEncoreArrives)), showEstimatedTime=False)
+        
+        obstacles = [pilotes[index].cible for index in pasEncoreArrives] + obstaclesPerm + [pilotes[index].p for index in dejaArrives] 
         for index in pasEncoreArrives:
             pilotes[index].carte.resetMap()
             pilotes[index].ajouterObstacles(obstacles, recalculer=True)
+            #pilotes[index].calculChemin(pilotes[index].cible)
+            
+            if debug:
+                arrives +=1
+                if arrives % 10 == 0: prog.printP(arrives)
+                
+        if debug: prog.stop()
         
         possibles = []
         
-        for index in copy(pasEncoreArrives):
+        
+        
+        for index in pasEncoreArrives:
             if pilotes[index].carte.getValue(pilotes[index].p) >= 0: # s'il existe un chemin
                 possibles.append(index)
                 
@@ -274,178 +301,77 @@ def calculPriorites2(pilotes, optimizeMakespan=True, tailleGroupeMax = None):
                 else:
                     groupes.append([index])           
         else:
-            print("IMPOSSIBLE")
-            print(pasEncoreArrives)
-            print("\n")
-            print(groupes)
             return None
-                
-        
-    print("Distance = ", distance)
+              
     return groupes
 
 
 
-def calculPrioritesWithoutStart(pilotes, nx, ny, margeX, margeY):
+def calculPrioritesWithoutStart(pilotes, nx, ny, margeX, margeY, debug = False):
     pasEncoreArrives = [p.index for p in pilotes]
     dejaArrives = []
     obstacles = []
     groupes = []
     distance = 0
     
+    prog = None
+    groupe = 0
+    arrives = 0
+    if debug:
+        prog = ProgressBar(len(pilotes), prefix = 'Cibles ext.', showEstimatedTime=False)
+        prog.printTitle("Calcul Priorités pour l'écartement")
+    
     for p in pilotes:
         p.p = getCibleExterieure(p.cible, nx, ny, margeX, margeY)
+        if debug:
+            arrives +=1
+            if arrives % 10 == 0: prog.printP(arrives)           
+    if debug: prog.stop()
     
     while len(pasEncoreArrives) > 0:
         groupes.append([])
+        
+        if debug:
+            groupe += 1
+            arrives = 0
+            prog = ProgressBar(len(pasEncoreArrives), prefix = 'Groupe: ' + str(groupe) + ' ' * (3-len(str(groupe))), suffix = '   Robots restants = ' + str(len(pasEncoreArrives)), showEstimatedTime=False)
         
         obstacles = [pilotes[index].cible for index in pasEncoreArrives] #+ [pilotes[index].p for index in dejaArrives]
         for index in pasEncoreArrives:
             pilotes[index].carte.resetMap()
             pilotes[index].ajouterObstacles(obstacles, recalculer=True)
+            if debug:
+                arrives +=1
+                if arrives % 10 == 0: prog.printP(arrives)
         ajout = False
         
         for index in copy(pasEncoreArrives):
-            if 100 >= pilotes[index].carte.getValue(pilotes[index].p) >= 0: # s'il existe un chemin
+            if pilotes[index].carte.getValue(pilotes[index].p) >= 0: # s'il existe un chemin
                 distance += pilotes[index].carte.getValue(pilotes[index].p)
                 groupes[-1].append(index)
                 pasEncoreArrives.remove(index)
                 dejaArrives.append(index)
                 ajout = True
                 
+        if debug: prog.stop()
+                
+                
+                
         if not(ajout):
-            print("IMPOSSIBLE")
-            print(pasEncoreArrives)
-            print("\n")
-            print(groupes)
+            print("IMPOSSIBLE pour les robots:", pasEncoreArrives)
             return None
                 
-        
-    print("Distance = ", distance)
+    
     return groupes
 
 
 
 
-def getBoxes(pilotes, xStart, yStart, widthX, widthY):
-    boxs = [[[xStart,yStart,widthX,widthY, pilotes]]]
-    liste_directions = [Direction.SOUTH,Direction.WEST, Direction.NORTH,Direction.EAST]
-    continuer = True
+
+def ecarterProba(pilotes, nx, ny, margeX, margeY, temps, priorites=None, debug=False, attirancePotentiel=25, shuffleMin=0):
+    if debug:
+        print('Ecartement des robots en ' + str(temps) + ' étapes...')
     
-    i = -1
-    while continuer:
-        i += 1
-        continuer = False
-        boxs.append([])
-        boxs.append([])
-        for b in boxs[i]:
-            if b[2] > 1 and b[3] > 1 and len(b[4]) > 1:
-                continuer = True
-                for x in range(2):
-                    startX = b[0] + x*int(b[2]/2.0)
-                    widthX = int(b[2]/2.0)
-                    if x == 1:
-                        widthX = b[2] - int(b[2]/2.0)
-                    for y in range(2):
-                        startY = b[1] + y*(int(b[3]/2.0))
-                        widthY = int(b[3]/2.0)
-                        if y == 1:
-                            widthY = b[3] - int(b[3]/2.0)
-                        
-                        new_pilotes = []
-                        for pil in b[4]:
-                            if 0 <= pil.depart[0] - startX < widthX and 0 <= pil.depart[1] - startY < widthY:
-                                new_pilotes.append(pil)
-                        
-                        first_dirs = [[Direction.SOUTH, Direction.WEST], [Direction.SOUTH, Direction.EAST], [Direction.NORTH, Direction.WEST], [Direction.NORTH, Direction.EAST]]
-                        if i==0:
-                            boxs[1].append([startX, startY, widthX, widthY, new_pilotes, first_dirs[x+2*y][0], widthY, x, y])
-                            boxs[2].append([startX, startY, widthX, widthY, new_pilotes, first_dirs[x+2*y][1], widthX, x, y])
-                        else:
-                            dir1, dir2 = None, None
-                            duration1, duration2 = 0, 0
-                            
-                            if b[7] != x and b[8] != y:
-                                dir1 = Direction.WAIT
-                                dir2 = Direction.WAIT
-                            elif b[7] == x and b[8] == y:
-                                dir1, dir2 = first_dirs[x+2*y][0], first_dirs[x+2*y][1]
-                                duration1 = widthY
-                                duration2 = widthX
-                            else:
-                                dir2 = Direction.WAIT
-                                if b[7] == 0 and b[8] == 0:
-                                    if x == 0 and y == 1:
-                                        dir1 = Direction.WEST
-                                        duration1 = widthX
-                                    else:
-                                        dir1 = Direction.SOUTH
-                                        duration1 = widthY
-                                elif b[7] == 1 and b[8] == 0:
-                                    if x == 0 and y == 0:
-                                        dir1 = Direction.SOUTH
-                                        duration1 = widthY
-                                    else:
-                                        dir1 = Direction.EAST
-                                        duration1 = widthX
-                                elif b[7] == 0 and b[8] == 1:
-                                    if x == 0 and y == 0:
-                                        dir1 = Direction.WEST
-                                        duration1 = widthX
-                                    else:
-                                        dir1 = Direction.NORTH
-                                        duration1 = widthY
-                                elif b[7] == 1 and b[8] == 1:
-                                    if x == 0 and y == 1:
-                                        dir1 = Direction.NORTH
-                                        duration1 = widthY
-                                    else:
-                                        dir1 = Direction.EAST
-                                        duration1 = widthX
-                                        
-                            boxs[i+1].append([startX, startY, widthX, widthY, new_pilotes, dir1, duration1, b[7], b[8]])
-                            boxs[i+2].append([startX, startY, widthX, widthY, new_pilotes, dir2, duration2, b[7], b[8]])
-
-        
-        i+=1
-                
-    return boxs[1:-1]
-
-
-
-
-def ecarter(pilotes, list_boxs, etape=1):
-    boxes = list_boxs[etape-1]
-    
-    liste_steps = []
-    for b in boxes:
-        for i in range(b[6]):
-            if i >= len(liste_steps):
-                liste_steps.append(SolutionStep())
-                
-            for pil in b[4]:
-                liste_steps[i][pil.index]  = b[5]
-        
-        inc = (0,0)
-        if b[5] == Direction.NORTH:
-            inc = (0,1)
-        elif b[5] == Direction.SOUTH:
-            inc = (0,-1)
-        elif b[5] == Direction.WEST:
-            inc = (-1,0)
-        elif b[5] == Direction.EAST:
-            inc = (1,0)
-            
-        for pil in b[4]:
-             for _ in range(b[6]):
-                 pil.move(inc)
-            
-                
-    return liste_steps
-
-
-
-def ecarterProba(pilotes, nx, ny, margeX, margeY, temps, priorites=None):
     AJOUT_POTENTIEL = nx + ny
     
     potentielNul = np.zeros((nx+2*margeX, ny+2*margeY))   
@@ -466,19 +392,19 @@ def ecarterProba(pilotes, nx, ny, margeX, margeY, temps, priorites=None):
         potentiel[(2*margeX+nx-1,y)] = 0
         
         
+    
+
     for p in pilotes:
-        p.carte.resetMap()
-        cible_ext = getCibleExterieure(p.cible, nx, ny, margeX, margeY)
-        p.carte.bfs(cible_ext[0], cible_ext[1])
         p.potentiel = potentiel
         p.r = 5
         p.a = 1
-        p.d = 50
+        p.d = 15
         p.poisson = 3
         p.porteeRepulsion = 4
-        p.attirancePotentiel = 10
+        p.attirancePotentiel = 25
         
-        
+    
+    
     makespan = 0
     distance = 0
     liste_steps = []
@@ -492,18 +418,56 @@ def ecarterProba(pilotes, nx, ny, margeX, margeY, temps, priorites=None):
     newPrio = True
     pilotesArrives = []
     pilotesActifs = [elt for elt in pilotes]
+    stop = False
+    ecartementFini = None
         
-    while not(needReset) and makespan < temps:
+    while not(needReset) and (not(stop) or makespan < shuffleMin) and makespan < temps:
         step = {}
         #step = SolutionStep()
         #print(makespan)
+    
         
         if not(priorites is None) and newPrio:
             newPrio = False
+            
+            prog = None
+            counter = 0
+            if debug:
+                prog = ProgressBar(len(pilotes), prefix = 'Groupe: ' + str(prio+1))
+            
+            aEviterPrio = [pilotes[index].cible for index in priorites[prio]]
+            aEviterChemins = []
             for index in priorites[prio]:
                 p = pilotes[index]
-                p.carte.bfs(p.cible[0], p.cible[1])
-                p.potentiel = potentielNul
+                p.carte.setAEviter([x for x in aEviterPrio if x != p.cible])
+                p.calculChemin(p.cible)
+                aEviterChemins += p.carte.getShortestPath(p.p)
+                p.potentiel = None
+                
+                p.attirancePotentiel = 0
+                p.r = 0
+                p.a = 0
+                p.d = 50
+                p.poisson = 0
+                p.porteeRepulsion = 1
+                
+                if debug:
+                    counter += 1
+                    if counter % 10 == 0: prog.printP(counter)
+                
+            for p in pilotes:
+                if not(p.index in priorites[prio]):
+                    p.carte.resetMap()
+                    cible_ext = getCibleExterieure(p.cible, nx, ny, margeX, margeY)
+                    p.carte.setAEviter(aEviterChemins)
+                    p.calculChemin(cible_ext)
+                    
+                    if debug:
+                        counter += 1
+                        if counter % 10 == 0: prog.printP(counter)
+                        
+            if debug: prog.stop()
+                
             
             pilotesActifs = []
             for groupe_prio in priorites[prio:]:
@@ -531,14 +495,19 @@ def ecarterProba(pilotes, nx, ny, margeX, margeY, temps, priorites=None):
             if not(priorites is None) and monPilote.index in priorites[prio] and monPilote.p == monPilote.cible:
                 pilotesArrives.append(monPilote)
                 pilotesActifs.remove(monPilote)
-                if index in priorites[prio]:
-                    priorites[prio].remove(index)
+                if monPilote.index in priorites[prio]:
+                    priorites[prio].remove(monPilote.index)
                 for p in pilotes:
                     p.ajouterObstacles([monPilote.p], recalculer = p.index in priorites[prio])
                     
                 if len(priorites[prio]) == 0:
                     newPrio = True
                     prio += 1
+                    
+                    if prio == len(priorites) - 1:
+                       newPrio = False
+                       stop = True
+                       ecartementFini = makespan
                     
             step[monPilote.index] = pp
                 
@@ -556,21 +525,31 @@ def ecarterProba(pilotes, nx, ny, margeX, margeY, temps, priorites=None):
            
             
     for p in pilotes:
-        p.potentiel = potentielNul
+        del p.potentiel
+        p.potentiel = None
+        #p.potentiel = potentielNul
       
+    if debug: print("")
+    if makespan < temps and debug:
+        print("Ecartement fini plus tôt, en " + str(ecartementFini) + " étapes. A duré au total " + str(makespan) + " étapes.")
+        
     return liste_steps, listePositionsRobots
 
 
 
 
 
-def nettoyage_steps(steps, pilotes, suivi):
+def nettoyage_steps(steps, pilotes, suivi, debug=False):
+    if debug:
+        print("Nettoyage de la solution")
+    
     nx = pilotes[0].carte.nx
     ny = pilotes[0].carte.ny
     nb_robots = len(pilotes)
     makespan = len(steps)
 
     T = np.zeros((makespan+1,nx,ny),dtype=int)-1
+
 
 
     for t in range(len(steps)+1) :
@@ -580,14 +559,18 @@ def nettoyage_steps(steps, pilotes, suivi):
     
     first = True
     d = 0
+    numero = 1
     while first or d > 0:
+        if debug: print("Passage " + str(numero) + " ... ", end='')
+        numero += 1
+        
         d = 0
         first = False
         for x in range(nx):
             for y in range(ny):
                 dernier_visiteur = T[0,x,y]
                 derniere_visite = 0
-                vide =  (dernier_visiteur ==-1 )
+                vide =  (dernier_visiteur ==-1)
                 for t in range(1,makespan+1):
                     contenu = T[t,x,y]
                     
@@ -610,8 +593,12 @@ def nettoyage_steps(steps, pilotes, suivi):
                         dernier_visiteur = contenu
                         derniere_visite = t
                         
+                        
+        if debug: print(d)
                     
     #j=0
+    del T
+    
     for i in reversed(range(len(steps))):
         if not steps[i]:
             steps.pop(i)
@@ -634,87 +621,7 @@ def getCibleExterieure(cible, nx, ny, margeX, margeY):
     else:
         return (cibleExtX, cible[1])
     
-            
-
-def nettoyage_stepsFonctionnePas(steps, pilotes, suivi):
-    nx = pilotes[0].carte.nx
-    ny = pilotes[0].carte.ny
-    nb_robots = len(pilotes)
-    makespan = len(steps)
-
-    T = np.zeros((makespan+1,nx,ny),dtype=np.short)-1
-
-
-    for t in range(len(steps)+1) :
-        for r in range(nb_robots):
-            T[t,suivi[t][r][0],suivi[t][r][1]]=r
-
-    
-    #print(T)
-    cycles = {}
-    for x in range(nx):
-        for y in range(ny):
-            dernier_visiteur = T[0,x,y]
-            derniere_visite = 0
-            
-            visiteurs = []
-            visites = []
-            for t in range(0,makespan+1):
-                contenu = T[t,x,y]
-                
-                if contenu ==-1 :
-                    pass
-                elif len(visiteurs) == 0:
-                    visiteurs = [contenu]
-                    visites = [t]
-                elif contenu in visiteurs:
-                    index_derniere_visite = last_index(visiteurs, contenu)
-                    if not contenu in cycles: cycles[contenu] = []
-                    cycles[contenu].append([(x,y), visites[index_derniere_visite], t, visiteurs[index_derniere_visite+1:], visites[index_derniere_visite+1:]])
-                else:
-                    visiteurs.append(contenu)
-                    visites.append(t)
-                    
-
-    for robot in cycles.keys():
-        i_c = 0
-        while not(cycles[robot] is None) and i_c < len(cycles[robot]):
-            #for i_c in range(len(cycles[robot])):
-            cycle = cycles[robot][i_c]
-            (x,y) = cycle[0]
-            derniere_visite = cycle[1]
-            t = cycle[2]
-            visiteurs = cycle[3]
-            visites = cycle[4]
-            
-            if len(visiteurs) == 0:
-                for pas in range(derniere_visite,t):
-                    if robot in steps[pas].keys():
-                        del steps[pas][robot]
-                for pas in range(derniere_visite+1,t):
-                    T[pas,suivi[pas][robot][0],suivi[pas][robot][1]] = -1
-                    suivi[pas][robot] = (x,y)
-                    
-                j = i_c+1
-                while not(cycles[robot] is None) and j < len(cycles[robot]):
-                    autre_cycle = cycles[robot][j]
-                    if derniere_visite <= autre_cycle[1] <= t or derniere_visite <= autre_cycle[2] <= t:
-                        cycles[robot].pop(j)
-                    else:
-                        j+=1
-            
-                cycles[robot].pop(i_c)
-            else:
-                i_c += 1
-      
-    keys = [elt for elt in cycles.keys()]
-    for key in keys:
-        if len(cycles[key]) == 0:
-            cycles.pop(key,None)
-    print(cycles)
-    return steps
-
-            
+              
     
    
 def getSolution(i, liste_steps):
@@ -727,19 +634,50 @@ def getSolution(i, liste_steps):
         s.add_step(step)
         
     return s
+
+
+def saveSolution(solution, file, s, nbAmeliorations):
+    if s.lower() != "no":
+        # On crée le dossier s'il nexiste pas
+        if not os.path.exists('solutions/' + file):
+            os.makedirs('solutions/' + file)
+        if not os.path.exists('solutions/' + file + "/zip"):
+            os.makedirs('solutions/' + file + "/zip")
+                    
+                    
+        filename = str(datetime.now()).split(".")[0].replace(" ", "_").replace("-", "_").replace(":", "_") + "_" + str(nbAmeliorations) + "___" + s 
+        save_name = 'solutions/' + file + '/zip/' + 'out_' + filename + '.zip'#'solutions/' + file + "/zip/" + filename + ".zip"
+        with SolutionZipWriter(save_name) as szw:
+            szw.add_solution(solution)
+                    
+                
+        with zipfile.ZipFile(save_name, 'r') as zip_ref:
+            zip_ref.extractall("")
+        
+        list_of_files = glob.glob('solutions/*.json') # * means all if need specific format then *.csv
+        latest_file = max(list_of_files, key=os.path.getctime).replace("\\", "/")
+        shutil.move(latest_file, "solutions/" + file + "/" + filename + ".json")
+        print('\033[32m' + "Saved to :", "solutions/" + file + "/" + filename + ".json" + '\033[0m')
+    else:
+        print('\033[32m' + "File not saved" + '\033[0m')
             
 
 
 def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistance = 10000, timeMax = 10,
-                    repulsionMoy=2, repulsionVariation=1,
-                    aleatoireMoy=1.5, aleatoireVariation=1,
-                    deterministeMoy=30, deterministeVariation=12,
-                    poissonMoy=5, poissonVariation=3,
+                    repulsionMin=1, repulsionMax=3,
+                    aleatoireMin=1, aleatoireMax=2,
+                    deterministeMin=30, deterministeMax=40,
+                    poissonMin=2, poissonMax=6,
+                    porteeRepulsionMin=2, porteeRepulsionMax=4,
+                    maxSimultanementMin=None, maxSimultanementMax=None,
+                    anticipationMin = 0, anticipationMax=0,
                     useShuffle=True, usePriorite=True, useRollback=True,
                     shuffleMin=None, shuffleMax=None,
                     rollbackMaxCount = None, waitBeforeRollback = None,
-                    probaRecalcul=None, rayon=None,
-                    margeX=None, margeY=None):
+                    probaRecalcul=None, penalisation=3,
+                    margeX=None, margeY=None,
+                    debug=False, tailleGroupePrioritesMax=None, stepVideMaxCount = 20,
+                    attiranceEcartement = 30):
     """
     Recherche une solution optimale (en makespan ou distance)
     Parameters
@@ -759,6 +697,14 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
     -------
     None.
     """
+    
+    # On récupère le nom du fichier pour l'enregistrement des solutions
+    s = input("Nom de l'enregistrement du fichier ? (\"No\" pour ne pas sauvegarder)\n")
+    
+    if not(optimizeMakespan):
+        useRollback = False
+        probaRecalcul = 1.0
+        stepVideMaxCount = 1000
     
     # Chargement du fichier
     idb = InstanceDatabase("datasets.zip")
@@ -780,11 +726,13 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
     obstacles_decales = [ (a+margeX,b+margeY) for (a,b) in i.obstacles]
     
     # On récupère tous les robots que l'on décale également
+    nbRobotsTotal = i.number_of_robots
     pilotes = [] 
     for r in range(i.number_of_robots):
         cible_decalee = (i.target_of(r)[0] + margeX, i.target_of(r)[1] + margeY)
         depart_decale = (i.start_of(r)[0] + margeX, i.start_of(r)[1] + margeY)
         pilotes.append(Pilote(r, tailleX, tailleY, cible_decalee, depart_decale, obstacles_decales))
+        pilotes[-1].carte.penalisation = penalisation
         
     
     
@@ -793,287 +741,360 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
     if shuffleMin is None: shuffleMin = min(max(int(nx/2.0), int(ny/2.0)), shuffleMax)    
     if not(useShuffle): shuffleMin, shuffleMax = 0, 0
     
-    # On définit els paramètres pour le rollback
+    # On définit les paramètres pour le rollback
     if waitBeforeRollback is None: waitBeforeRollback = nx + ny
     if rollbackMaxCount is None: rollbackMaxCount = 3
     if not(useRollback) : waitBeforeRollback = 1000000
     
     # Quelques paramètres en plus
     if probaRecalcul is None: probaRecalcul = min(1.0, max(0.01, 40.0/len(pilotes)))
-    if rayon is None: rayon = int(max(nx, ny) / 5.0)
-    
-    newPrio = (calculPrioritesWithoutStart(pilotes, nx, ny, margeX, margeY))[::-1]
+    if maxSimultanementMax is None: maxSimultanementMax = nbRobotsTotal
+    if maxSimultanementMin is None: maxSimultanementMin = min(maxSimultanementMax, nbRobotsTotal)
+    if tailleGroupePrioritesMax is None:
+        if optimizeMakespan:
+            tailleGroupePrioritesMax = nbRobotsTotal
+        else:
+            tailleGroupePrioritesMax = max(1, int(nbRobotsTotal**2 / 8000.0))
+    newPrio = (calculPrioritesWithoutStart(pilotes, nx, ny, margeX, margeY, debug=debug))[::-1]
+    if debug: print("")
         
-        
-    
-    # On récupère le nom du fichier pour l'enregistrement des solutions
-    s = input("Nom de l'enregistrement du fichier ? (\"No\" pour ne pas sauvegarder)\n")
+
 
 
     
 
     makespanMini = maxMakespan
+    makespanRealMini = maxMakespan
     distanceMini = maxDistance
+    distanceRealMini = maxDistance
     nbAmeliorations = 0
     nbEssais = 0
     
     tStart = time.time()
     while time.time() - tStart < timeMax:
-        #solution = Solution(i)
         
-        # Nombre de robots arrivés à leur cible
+        # Makespan, distance et nombre de robots arrivés à leur cible
         nbArrives = 0
-        
-        # MakeSpan et distance
         makespan = 0
         distance = 0
         
-        # On met des params aléatoires
-        [ elt.reset() for elt in pilotes]
         
-        liste_steps, listePositionsRobots = ecarterProba(pilotes, nx, ny, margeX, margeY, random.randint(shuffleMin, shuffleMax), newPrio)
+        # On réinitialise les pilotes
+        for elt in pilotes:
+            elt.reset()
+        
+        
+        # On écarte les robots
+        # On nettoie immédiatement car il y a beaucoup de déplacements à nettoyer et cela permet de réduire
+        # l'incertitude sur la distance réelle
+        shuffle = random.randint(shuffleMin, shuffleMax)
+        liste_steps, listePositionsRobots = ecarterProba(pilotes, nx, ny, margeX, margeY, shuffle, priorites=copyJson(newPrio), debug=debug, attirancePotentiel=attiranceEcartement, shuffleMin=shuffleMin)
+        liste_steps = nettoyage_steps(liste_steps, pilotes, listePositionsRobots)
         for step in liste_steps:
             makespan += 1
-            #solution.add_step(step)
+            distance += len(step)
+        if debug: print("")
             
-        for p in pilotes:
-            p.carte.bfs(p.cible[0], p.cible[1])
         
-        pr = repulsionMoy + repulsionVariation *(-1 +2*np.random.random())
-        pa = aleatoireMoy + aleatoireVariation *(-1 +2*np.random.random())
-        pd = deterministeMoy + deterministeVariation *(-1 +2*np.random.random())
-        poisson = poissonMoy + poissonVariation *(-1 +2*np.random.random())
-        [elt.params(pr,pa,pd, poisson) for elt in pilotes]
-        
-        # Variables utilisées à chaque step
+        # Pour mettre a jour a chaque step les obstacles
         nbArrives = 0
-        nbRobotsTotal = i.number_of_robots
-        pilotesArrives = []
-        pilotesActifs = [p for p in pilotes]
         cases_prises = [elt.p for elt in pilotes] # Cases inaccessibles
-        
-        needReset = False
-        stepVideCount = 0
-        stepVideMaxCount = 20
-        
-        
-        
-        priorites = [[elt.index for elt in pilotes]]
-        prio = 0
-        if usePriorite:
-            priorites = calculPriorites2(pilotes, optimizeMakespan, tailleGroupeMax=1)
+        pilotesArrives = []
+        pilotesActifs = []
+        for p in pilotes:
+            if p.p == p.cible:
+                pilotesArrives.append(p)
+                nbArrives +=1
+            else:
+                pilotesActifs.append(p)
+                
             
+        # On calcule les priorités
+        needReset = False
+        priorites = [[elt.index for elt in pilotesActifs]]
+        if usePriorite:
+            priorites = calculPriorites2(pilotes, pilotesActifs, pilotesArrives, optimizeMakespan=optimizeMakespan, tailleGroupeMax=tailleGroupePrioritesMax, debug=debug)       
+            # On regarde s'il existe un ordre de priorité qui fonctionne
             if priorites is None:
                 needReset = True
             else:
                 priorites = priorites[::-1]
+           
+        if needReset:
+            print("IMPOSSIBLE: needReset")
         else:
-            for p in pilotes:
-                p.carte.bfs(p.cible[0], p.cible[1])
             
-            
-        rollbackCount = 0
-        lastArrival = makespan
-        
-        # Save
-        savePrio = prio
-        saveDistance = distance
-        savePriorites = deepcopy(priorites)
-        saveIndexActifs = [elt.index for elt in pilotes]
-        saveIndexArrives = []
-        
-        while not(needReset) and (nbArrives < nbRobotsTotal) and ((optimizeMakespan and makespan<makespanMini) or (not(optimizeMakespan) and distance<distanceMini)):
-            step = {}
-            #step = SolutionStep()
-            #print(makespan)
+            if True:
+                obstacles = [elt.cible for elt in pilotesArrives]
+                if not(optimizeMakespan): obstacles += [elt.p for elt in pilotesActifs]
+                aEviter = []
+                for i_prio in range(len(priorites)):
+                    obstacles += aEviter
+                    aEviter = [pilotes[index].cible for index in priorites[i_prio]]
+                    
+                    # On recalcule le BFS pour tous les robots
+                    for index in priorites[i_prio]:
+                        p = pilotes[index]
+                        p.carte.resetMap()
+                        p.carte.setAEviter([x for x in aEviter if x != p.cible])
+                        p.carte.setCible(p.cible)
+                        p.carte.aEteCaclcule = False
+                        
+                        if optimizeMakespan:
+                            p.ajouterObstacles(obstacles, recalculer=True)
+                        else:
+                            p.ajouterObstacles(obstacles, recalculer=False)
+                            p.calculChemin(p.cible)
+                            obstacles.remove(p.p)
+              
+
+            if True:
+                prio = 0
                 
+                # Variables pour abandonner si on est dans un cul de sac
+                needReset = False
+                stepVideCount = 0
             
-            if len(priorites[prio]) == 0:
-                prio += 1
-                savePrio = prio
+            
+                # On règle les paramètres aléatoires
+                pr = repulsionMin + (repulsionMax - repulsionMin) * np.random.random()
+                pa = aleatoireMin + (aleatoireMax - aleatoireMin) * np.random.random()
+                pd = deterministeMin + (deterministeMax - deterministeMin) * np.random.random()
+                poisson = poissonMin + (poissonMax - poissonMin) * np.random.random()
+                ppr = round(porteeRepulsionMin + (porteeRepulsionMax - porteeRepulsionMin) *np.random.random())
+                maxSimultanement = round(maxSimultanementMin + (maxSimultanementMax - maxSimultanementMin) * np.random.random())
+                anticipation = round(anticipationMin + (anticipationMax - anticipationMin) * np.random.random())
+                
                 
                 if not(optimizeMakespan):
-                    for index in priorites[prio]:
-                        pilotes[index].ajouterObstacles([], recalculer=True)
-                        pilotes[index].r = 0
-                        pilotes[index].a = 0
-                """
-                for p in pilotes:
-                    if p in priorites[prio]:
-                        p.attirancePotentiel = 0
-                        p.potentiel = np.zeros((2*margeX+nx, 2*margeY+ny))
-                    else:
-                        p.attirancePotentiel = 500
-                        p.potentiel = np.ones((2*margeX+nx, 2*margeY+ny)) * (rayon+100)
-                        for x in range(-rayon, rayon +1):
-                            for y in range(-rayon + abs(x), rayon - abs(x) + 1):
-                                distance_from_cible = abs(x) + abs(y)
-                                p.potentiel[(p.cible[0]+x, p.cible[1]+y)] = distance_from_cible
+                    anticipation = 0
+                    pr = 0
+                    pa = 0.05
+                    pd = 100
+                    poisson = 0
+                    ppr = 1
+                
+                
+                for elt in pilotes:
+                    elt.params(pr,pa,pd, poisson, ppr)
+                
+                
+                
+                
+                    
+                # ===== SAVE en cas de rollback ===== #
+                rollbackCount = 0
+                lastArrival = makespan
+                savePrio = prio
+                saveDistance = distance
+                savePriorites = deepcopy(priorites)
+                saveIndexActifs = [elt.index for elt in pilotesActifs]
+                saveIndexArrives = [elt.index for elt in pilotesArrives]
+                nbRollbacks = 0
+                
+                #print(pilotes[priorites[0][0]].carte.show())
+                
+                prog = None
+                if debug:
+                    prog = ProgressBar(nbRobotsTotal)
+                    prog.printTitle("Nombre de robots arrivés")
+                    prog.printP(nbArrives)
+                
+                
+                while not(needReset) and (nbArrives < nbRobotsTotal) and ((optimizeMakespan and makespan<makespanMini) or (not(optimizeMakespan) and distance<distanceMini)):
+                    step = {}
+                    #print(makespan, nbArrives)
+                    
+                    if debug and makespan % 10 == 0:
+                        prog.printP(nbArrives)
+                        
+                    
+                    if len(priorites[prio]) <= anticipation and len(priorites) > prio+1:
+                        for elt in priorites[prio]:
+                             priorites[prio+1].append(elt)
+                             savePriorites[prio+1].append(elt)
+                        prio += 1
+                        savePrio += 1
+                    
+                        
+                    stepIsEmpty = True # Booléen qui nous permettra de ne pas ajouter des steps inutiles
+                      
+                    nbArrives = len(pilotesArrives)
+                    
+                    # Anciennes positions des robots, à enlever au prochain pas
+                    cases_prises = [(elt.p[0], elt.p[1], Direction.WAIT) for elt in pilotes] # Cases inaccessibles
+                    
+                    #random.shuffle(pilotesActifs)
+                    for index in priorites[prio][:maxSimultanement]:
+                    #for monPilote in pilotesActifs:#priorites[prio]:
+                        #index = monPilote.index
+                        monPilote = pilotes[index]
+                        pp = None # Action du robot (WAIT, SOUTH, NORTH, WEST, EAST)
+                        if monPilote.p == monPilote.cible:
+                            
+                            # SAUVERGARDE Pour le Rollback
+                            lastArrival = makespan
+                            rollbackCount = 0
+                            saveDistance = distance
+                            savePrio = prio
+                            saveIndexArrives.append(index)
+                            saveIndexActifs.remove(index)
+                            if index in priorites[prio]: savePriorites[prio].remove(index)
+                            
+                            # Le robot arrive et attends
+                            nbArrives += 1
+                            pp = Direction.WAIT
+                            if monPilote in pilotesActifs:
+                                pilotesArrives.append(monPilote)
+                                pilotesActifs.remove(monPilote)
+                            if index in priorites[prio]: priorites[prio].remove(index)
+                            
+                            # On mets à jour les obstacles des autres
+                            if optimizeMakespan:
+                                for p in pilotesActifs:
+                                    p.ajouterObstacles([monPilote.p], recalculer = random.random() <= probaRecalcul*nbRobotsTotal/float(len(pilotesActifs)))
+                        else :
+                            previousPosPilote = monPilote.p
+                            pp = monPilote.pas_probabiliste(cases_prises)
+                            if pp != Direction.WAIT: # Si le robot bouge, le pas n'est pas inutile
+                                stepIsEmpty = False
+                                distance += 1
+                                #caseToRemove.append(previousPosPilote)
+                                cases_prises.append((monPilote.p[0], monPilote.p[1], Direction.WAIT))
                                 
-                """
-            
-                
-            stepIsEmpty = True # Booléen qui nous permettra de ne pas ajouter des steps inutiles
-              
-            nbArrives = len(pilotesArrives)
-            
-            # Anciennes positions des robots, à enlever au prochain pas
-            cases_prises = [(elt.p[0], elt.p[1], Direction.WAIT) for elt in pilotes] # Cases inaccessibles
-            
-            #random.shuffle(pilotesActifs)
-            for index in priorites[prio]:
-            #for monPilote in pilotesActifs:#priorites[prio]:
-                #index = monPilote.index
-                monPilote = pilotes[index]
-                pp = None # Action du robot (WAIT, SOUTH, NORTH, WEST, EAST)
-                if monPilote.p == monPilote.cible:
-                    
-                    # SAUVERGARDE Pour le Rollback
-                    lastArrival = makespan
-                    rollbackCount = 0
-                    saveDistance = distance
-                    savePrio = prio
-                    savePriorites
-                    saveIndexArrives.append(index)
-                    saveIndexActifs.remove(index)
-                    if index in priorites[prio]: savePriorites[prio].remove(index)
-                    
-                    # Le robot arrive et attends
-                    nbArrives += 1
-                    pp = Direction.WAIT
-                    pilotesArrives.append(monPilote)
-                    pilotesActifs.remove(monPilote)
-                    if index in priorites[prio]: priorites[prio].remove(index)
-                    
-                    # On mets à jour les obstacles des autres
-                    for p in pilotes:
-                        p.ajouterObstacles([monPilote.p], recalculer = random.random() <= probaRecalcul)
-                else :
-                    previousPosPilote = monPilote.p
-                    pp = monPilote.pas_probabiliste(cases_prises)
-                    if pp != Direction.WAIT: # Si le robot bouge, le pas n'est pas inutile
-                        stepIsEmpty = False
-                        distance += 1
-                        #caseToRemove.append(previousPosPilote)
-                        cases_prises.append((monPilote.p[0], monPilote.p[1], Direction.WAIT))
+                                cases_prises.remove((previousPosPilote[0], previousPosPilote[1], Direction.WAIT))
+                                cases_prises.append((previousPosPilote[0], previousPosPilote[1], monPilote.lastDir))
+                                
+                        if pp != Direction.WAIT:
+                            step[monPilote.index] = pp
                         
-                        cases_prises.remove((previousPosPilote[0], previousPosPilote[1], Direction.WAIT))
-                        cases_prises.append((previousPosPilote[0], previousPosPilote[1], monPilote.lastDir))
                         
-                if pp != Direction.WAIT:
-                    step[monPilote.index] = pp
-                
-                
-            if not(stepIsEmpty):
-                makespan += 1
-                stepVideCount = 0
-                liste_steps.append(step)
-                listePositionsRobots.append([elt.p for elt in pilotes])
-                
-                #print("liste", makespan, len(listePositionsRobots))
-                #solution.add_step(step)
-            else:
-                stepVideCount += 1
-                if stepVideCount >= stepVideMaxCount:
-                    needReset = True
-                    
-                    
-            if makespan - lastArrival > waitBeforeRollback:
-                print("ROOOOOOOOLLLLLLLLLBACKKK !!!!!")
-                rollbackCount += 1
-                if rollbackCount >= rollbackMaxCount:
-                    print("\n", rollbackMaxCount, "ROLLBACK d'affilé -> reset\n")
-                    needReset = True
-                else:
-                    makespan = lastArrival
-                    distance = saveDistance
-                    
-                    # On enlève les steps qu'on rollback ainsi que l historique des positions
-                    liste_steps = liste_steps[:lastArrival+1]
-                    listePositionsRobots = listePositionsRobots[:lastArrival+2]
-                    
-                    # On replace les robots
-                    for j in range(len(listePositionsRobots[-1])):
-                        pilotes[j].p = listePositionsRobots[-1][j]
-                    
-                    # On remet en place les priorités et les robots en déplacement
-                    prio = savePrio
-                    priorites = deepcopy(savePriorites)
-                    pilotesActifs = [pilotes[index] for index in saveIndexActifs]
-                    pilotesArrives = [pilotes[index] for index in saveIndexArrives]
-                    
-                    # On recalcule tous les BFS
-                    obstacles = [p.cible for p in pilotesArrives]
-                    for p in pilotesActifs:
-                        p.carte.resetMap()
-                        p.ajouterObstacles(obstacles, recalculer=True)
+                    if not(stepIsEmpty):
+                        makespan += 1
+                        stepVideCount = 0
+                        liste_steps.append(step)
+                        listePositionsRobots.append([elt.p for elt in pilotes])
                         
-
-
+                        #print("liste", makespan, len(listePositionsRobots))
+                        #solution.add_step(step)
+                    else:
+                        stepVideCount += 1
+                        if stepVideCount >= stepVideMaxCount:
+                            needReset = True
+                            
+                            
+                    if makespan - lastArrival > waitBeforeRollback:
+                        rollbackCount += 1
+                        nbRollbacks += 1
+                        #liste_steps = nettoyage_steps(liste_steps, pilotes, listePositionsRobots)
+                        #solution = getSolution(i, liste_steps)
+                        #saveSolution(solution, file, "rollback" + str(rollbackCount) + "_" + str(makespan), nbAmeliorations)
+                        if rollbackCount >= rollbackMaxCount:
+                            #print("\n", rollbackMaxCount, "ROLLBACK d'affilé -> reset\n")
+                            needReset = True
+                        else:
+                            makespan = lastArrival
+                            distance = saveDistance
+                            
+                            # On enlève les steps qu'on rollback ainsi que l historique des positions
+                            liste_steps = liste_steps[:lastArrival]
+                            listePositionsRobots = listePositionsRobots[:lastArrival+1]
+                            
+                            # On replace les robots
+                            for j in range(len(listePositionsRobots[-1])):
+                                pilotes[j].p = listePositionsRobots[-1][j]
+                            
+                            # On remet en place les priorités et les robots en déplacement
+                            prio = savePrio
+                            priorites = deepcopy(savePriorites)
+                            pilotesActifs = [pilotes[index] for index in saveIndexActifs]
+                            pilotesArrives = [pilotes[index] for index in saveIndexArrives]
+                            
+                            # On recalcule tous les BFS
+                            obstacles = [p.cible for p in pilotes]
+                            
+                            if rollbackCount > int(rollbackCount/2.0):
+                                obstacles += [p.p for p in pilotesActifs]
+                                
+                            for p in pilotesActifs:
+                                p.carte.resetMap()
+                                p.carte.setCible(p.cible)
+                                p.ajouterObstacles(obstacles, recalculer=True)
+                                
         
-        liste_steps = nettoyage_steps(liste_steps, pilotes, listePositionsRobots)
-        solution = getSolution(i, liste_steps)
-
-        # On est sortis de la boucle
-        nbEssais += 1
-        print("arrives = ", nbArrives)
-        # SI ON ARRIVE ICI C'EST QU'ON A TROUVE UNE SOLUTION
-        if not(needReset) and ((optimizeMakespan and makespan<makespanMini) or (not(optimizeMakespan) and distance<distanceMini)):
-            nbAmeliorations += 1
-            print("")
-            print("Trouvé une solution au "+str(nbEssais)+"ième essai | makespan = "+str(solution.makespan) + "   | distance = " + str(solution.total_moves))
-
-            if optimizeMakespan:
-                makespanMini = solution.makespan
-            else:
-                distanceMini = solution.total_moves
-            
-            """
-            with SolutionZipWriter("outJoss"+str(solution.makespan)+".zip") as szw:
-                szw.add_solution(solution)
-            """
-            
-            if s.lower() != "no":
-                # On crée le dossier s'il nexiste pas
-                if not os.path.exists('solutions/' + file):
-                    os.makedirs('solutions/' + file)
-                if not os.path.exists('solutions/' + file + "/zip"):
-                    os.makedirs('solutions/' + file + "/zip")
-                    
-                    
-                filename = str(datetime.now()).split(".")[0].replace(" ", "_").replace("-", "_").replace(":", "_") + "_" + str(nbAmeliorations) + "___" + s 
-                save_name = 'solutions/' + file + '/zip/' + 'out_' + filename + '.zip'#'solutions/' + file + "/zip/" + filename + ".zip"
-                with SolutionZipWriter(save_name) as szw:
-                    szw.add_solution(solution)
-                    
-                
-                with zipfile.ZipFile(save_name, 'r') as zip_ref:
-                    zip_ref.extractall("")
         
-                list_of_files = glob.glob('solutions/*.json') # * means all if need specific format then *.csv
-                latest_file = max(list_of_files, key=os.path.getctime).replace("\\", "/")
-                shutil.move(latest_file, "solutions/" + file + "/" + filename + ".json")
-                print("Saved to :", "solutions/" + file + "/" + filename + ".json")
-            else:
-                print("File not saved")
                 
-            try:
-                validate(solution)
-                print("solution validée par cgshop2021_pyutils.validate")
-            except ZipReaderError as zre:
-                print("Bad Zip:", zre)
-            except InvalidSolutionError as ise:
-                print("Bad Solution:", ise)
-            except SolutionEncodingError as see:
-                print("Bad Solution File:", see)
+                
+        
+                # On est sortis de la boucle
+                nbEssais += 1
+                newSol = False
+                
+                if debug:
+                    prog.printP(nbArrives)
+                    prog.stop(finish=False)
+                    
+                #print("arrives = ", nbArrives)
+                # SI ON ARRIVE ICI C'EST QU'ON A TROUVE UNE SOLUTION
+                if not(needReset) and ((optimizeMakespan and makespan<makespanMini) or (not(optimizeMakespan) and distance<distanceMini)):
+                    beforeMakespan = makespan
+                    beforeDistance = distance
+                    
+                    liste_steps = nettoyage_steps(liste_steps, pilotes, listePositionsRobots)
+                    solution = getSolution(i, liste_steps)
+                    
+                    makespan = solution.makespan
+                    distance = solution.total_moves
+                    
+                    if ((optimizeMakespan and makespan<makespanRealMini) or (not(optimizeMakespan) and distance<distanceRealMini)):
+                        nbAmeliorations += 1
+                        newSol = True
+                        print("")
+                        print('\033[32m' + "Trouvé une solution au "+str(nbEssais)+"ième essai | makespan = "+str(solution.makespan) + "   | distance = " + str(solution.total_moves) + '\033[0m')
+                        print("repu=" + str(pr) + ", alea=" + str(pa) + ", deter=" + str(pd) + ", poisson=" + str(poisson) + ", portee repu=" + str(ppr))
+                        print("shuffle=" + str(shuffle) + ", anticipation=" + str(anticipation) + ", nbRollBacks=" + str(nbRollbacks) + ", maxSimultanement=" + str(maxSimultanement))
+                        
+                        if optimizeMakespan:
+                            makespanMini = beforeMakespan
+                            makespanRealMini = makespan
+                        else:
+                            distanceMini = beforeDistance
+                            distanceRealMini = distance
+                        
+            
+            
+                        saveSolution(solution, file, s, nbAmeliorations)            
+                            
+                        try:
+                            validate(solution)
+                            print("solution validée par cgshop2021_pyutils.validate")
+                        except ZipReaderError as zre:
+                            print("Bad Zip:", zre)
+                        except InvalidSolutionError as ise:
+                            print("Bad Solution:", ise)
+                        except SolutionEncodingError as see:
+                            print("Bad Solution File:", see)
+                            
+                    del solution
+            
+            
+                if not(newSol):
+                    print("")
+                    print('\033[31m' + str(nbEssais) +": " + str(nbArrives) + " robots arrivés avec makespan=" + str(makespan) + " et distance=" + str(distance) + '\033[0m')
+                    print('\033[32m' + "Best solution: makespan=" + str(makespanRealMini) + " et distance=" + str(distanceRealMini) + '\033[0m')
+                    print("repu=" + str(pr) + ", alea=" + str(pa) + ", deter=" + str(pd) + ", poisson=" + str(poisson) + ", portee repu=" + str(ppr))
+                    print("shuffle=" + str(shuffle) + ", anticipation=" + str(anticipation) + ", nbRollBacks=" + str(nbRollbacks) + ", maxSimultanement=" + str(maxSimultanement))
+                           
     
-    print(nbArrives)
-    
-    
-    
-    
-    
-    
+                del liste_steps
+                del savePriorites
+                del priorites
+                del pilotesActifs
+                del saveIndexActifs
+                del pilotesArrives
+                del saveIndexArrives
+                del listePositionsRobots
+                if debug: print("\n\n")
             
               
                 
@@ -1089,6 +1110,18 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
 #galaxy_cluster_00000_20x20_20_80
 #galaxy_cluster2_00003_50x50_25_625
 
-trouverSolution("small_free_001_10x10_40_40.instance", maxMakespan = 10000, optimizeMakespan = False,waitBeforeRollback=50,
-                timeMax=60, usePriorite=True, useShuffle=True, shuffleMin=5, shuffleMax = 15, probaRecalcul=1, deterministeMoy=100)
 
+trouverSolution("galaxy_cluster_00000_20x20_20_80.instance", optimizeMakespan = True, maxMakespan = 600, maxDistance = 100000, timeMax = 11000,
+                    repulsionMin=4, repulsionMax=25,
+                    aleatoireMin=1, aleatoireMax=10,
+                    deterministeMin=30, deterministeMax=100,
+                    poissonMin=3, poissonMax=30,
+                    porteeRepulsionMin=2, porteeRepulsionMax=6,
+                    maxSimultanementMin=150, maxSimultanementMax=625,
+                    anticipationMin = 0, anticipationMax=4,
+                    useShuffle=True, usePriorite=True, useRollback=True,
+                    shuffleMin=30, shuffleMax=100,
+                    rollbackMaxCount = 10, waitBeforeRollback = 200,
+                    probaRecalcul=1.0, penalisation=4,
+                    margeX=15, margeY=15,
+                    debug=False, tailleGroupePrioritesMax=625, stepVideMaxCount = 200)

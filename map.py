@@ -15,13 +15,20 @@ class bcolors:
     ENDC = '\033[0m'
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
+    
 
 
 NOT_CALCULATED = -1
 OBS = -2
 
+def dist(t1,t2):
+    '''La distance de la valeur absolue entre deux tuples'''
+    return abs(t1[0]-t2[0])+abs(t1[1]-t2[1])
+
 
 class Case:
+    
+    __slots__ = ('x', 'y', 'distance', 'fils', 'parent', 'estPenalise')
     
     def __init__(self, x, y):
         self.x = x
@@ -29,11 +36,13 @@ class Case:
         self.distance = NOT_CALCULATED
         self.fils = []
         self.parent = []
-        self.obstaclesAreclaculer = []
+        self.estPenalise = False
 
 
 
 class Map:
+    
+    __slots__ = ('map' ,'nx', 'ny', 'cible', 'obstaclesPermanents', 'aEteCaclcule', 'obstaclesAreclaculer','penalisation')
     
     def __init__(self, nx, ny):
         self.nx = nx
@@ -43,6 +52,30 @@ class Map:
         self.resetMap()
         self.aEteCaclcule = False
         self.obstaclesAreclaculer = []
+        self.penalisation = 3
+        
+        
+    def setAEviter(self, aEviter):
+        for c in aEviter:
+            self.map[c[0]][c[1]].estPenalise = True
+            
+    def getShortestPath(self, posDepart):
+        if not(self.aEteCaclcule):
+            raise Exception("La map n\'a pas été calculée")
+            
+        path = [posDepart]
+        current = self.map[posDepart[0]][posDepart[1]]
+        
+        if not(current.distance >= 0):
+            raise Exception("Il n'y a pas de chemin valide")
+            
+        while current != self.cible:
+            voisins = self.getVoisins(current)
+            voisins = sorted(voisins, key=lambda v: v.distance + 10000*(v.distance==NOT_CALCULATED))
+            current = voisins[0]
+            path.append((current.x, current.y))
+            
+        return path
         
         
     def getValue(self, pos):
@@ -89,13 +122,13 @@ class Map:
     def getVoisinsXY(self, pos):
         L = []
         (x, y) = pos
-        if (x > 0 and self.map[x-1][y].distance != OBS) :
+        if (x > 0 and self.map[x-1][y].distance >= 0) :
             L.append((x-1,y))
-        if (x < self.nx - 1 and self.map[x+1][y].distance != OBS) :
+        if (x < self.nx - 1 and self.map[x+1][y].distance >= 0) :
             L.append((x+1,y))
-        if (y > 0 and self.map[x][y-1].distance != OBS) :
+        if (y > 0 and self.map[x][y-1].distance >= 0) :
             L.append((x,y-1))
-        if (y < self.ny - 1 and self.map[x][y+1].distance != OBS) :
+        if (y < self.ny - 1 and self.map[x][y+1].distance >= 0) :
             L.append((x,y+1))
         return L
     
@@ -108,7 +141,7 @@ class Map:
         self.aEteCaclcule = False
         
         
-    def bfs(self, x, y, L=None):
+    def bfs(self, x, y, L=None, distmax=10000):
         nbACalculer = 0
         distActuelle = 100000
         if L is None:
@@ -130,25 +163,44 @@ class Map:
         while nbACalculer > 0:
             while (distActuelle not in L) or (distActuelle in L and len(L[distActuelle]) == 0):
                 distActuelle+=1
-            if distActuelle+1 not in L:
-                L[distActuelle+1] = []
                 
+            # On récupère la case actuelle et ses voisins
             current = L[distActuelle].pop(0)
             nbACalculer -= 1
             voisins = self.getVoisins(current)
             
             for v in voisins:
+                # Distance jusqu'a v si on passe par current
+                distance_v = current.distance + 1 + self.penalisation*(v.estPenalise or current.estPenalise)
+                ajouterChemin = False
+                
+                # Si jamais on a jamais calculé la case, on ajoute le chemin
                 if v.distance == NOT_CALCULATED:
-                    v.distance = current.distance + 1
-                    L[current.distance + 1].append(v)
-                    nbACalculer += 1
+                    ajouterChemin = True
+                    
+                # Si on a déja calculé la case et que l'on trouve la même distance -> cela fait un parent de plus
+                elif v.distance == distance_v:
                     v.parent.append(current)
                     current.fils.append(v)
-                elif v.distance > current.distance + 1:
-                    v.distance = current.distance + 1
-                    L[current.distance + 1].append(v)
-                    nbACalculer += 1
+                
+                # Si on a déja calculé la case mais que l'on trouve une distance plus courte
+                elif v.distance > distance_v:
+                    # On supprime les parents précédents
+                    for parent in v.parent:
+                        if v in parent.fils:
+                            parent.fils.remove(v)
+                    ajouterChemin = True
+                    
+                if ajouterChemin:
+                    v.distance = distance_v
                     v.parent = [current]
+                    current.fils.append(v)
+                    
+                    # Si la case n'est pas trop loin on l'ajoute pour calculer ses voisins
+                    if v.distance < distmax:
+                        if not(v.distance) in L: L[v.distance] = []
+                        L[v.distance].append(v)
+                        nbACalculer += 1
         
         self.aEteCaclcule = True
                     
@@ -163,6 +215,9 @@ class Map:
             else:
                 raise Exception("BFS_nouveaux_obstacles appelé sans calcul préalable du BFS ni cible")
             return
+        elif not(self.cible is None) and len(self.obstaclesAreclaculer) > self.nx*self.ny/10.0:
+            self.remettreAZero()
+            self.bfs(self.cible[0], self.cible[1])
         
         
         L = []
@@ -188,32 +243,46 @@ class Map:
                     
             obs.parent = []
             
+        # On met a jour ce que l'on peut
+        # nouveauL correspond à ce qui repassera par le BFS classique
         nouveauL = {}
         while len(L) > 0:
-            current = L.pop()
+            # On récupère la case actuelle et ses voisins
+            current = L.pop(0)
             voisins = self.getVoisins(current)
             
+            # On cherche les voisins qui ont déja été calculé et qui ont la distance la plus courte
+            # Il faut prendre en compte si les cases sont pénalisées
             voisinsPlusProches = []
+            bestDist = None # Correspond à la distance de current en passant par le voisin le plus proche
             for v in voisins:
+                # Si on a déja calculé la case
                 if not(v.distance == NOT_CALCULATED):
+                    distance_v = v.distance + 1 + self.penalisation * (v.estPenalise or current.estPenalise)
+                    
+                    # Si c'est le premier voisin, pas besoin de regarde sa distance, on le prends
                     if len(voisinsPlusProches) == 0:
                         voisinsPlusProches.append(v)
-                    elif v.distance < voisinsPlusProches[0].distance:
+                        bestDist = distance_v
+                    elif distance_v < bestDist: # On a trouvé plus court
                         voisinsPlusProches = [v]
-                    elif v.distance == voisinsPlusProches[0].distance:
+                    elif distance_v == bestDist: # On a trouvé aussi bien (cela fera un parent en plus)
                         voisinsPlusProches.append(v)
                         
             # On a trouvé un voisin qui n'est ni un mur, ni une case non calculée
             if len(voisinsPlusProches) > 0: # On peut calculer le chemin
                 current.parent = voisinsPlusProches
-                current.distance = current.parent[0].distance +1
+                current.distance = bestDist
+                
+                # On ajoute les relations de fils
                 for v in voisinsPlusProches:
                     if not(current in v.fils):
                         v.fils.append(current)
                 
+                # On regarde à présent si on ne peut pas réduire la distance d'un voisin en passant par current d'abord
                 aRevoir = False
                 for v in voisins:
-                    if (v.distance == NOT_CALCULATED or v.distance > current.distance +1) and not(v in L):
+                    if (v.distance == NOT_CALCULATED or v.distance > current.distance + 1 + self.penalisation * (v.estPenalise or current.estPenalise)) and not(v in L):
                         aRevoir = True
                 
                 if aRevoir:
