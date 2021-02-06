@@ -1110,18 +1110,19 @@ def trouverSolution(file, optimizeMakespan = True, maxMakespan = 200, maxDistanc
 #galaxy_cluster_00000_20x20_20_80
 #galaxy_cluster2_00003_50x50_25_625
 
-
-trouverSolution("galaxy_cluster_00000_20x20_20_80.instance", optimizeMakespan = True, maxMakespan = 600, maxDistance = 100000, timeMax = 11000,
-                    repulsionMin=4, repulsionMax=25,
-                    aleatoireMin=1, aleatoireMax=10,
-                    deterministeMin=30, deterministeMax=100,
-                    poissonMin=3, poissonMax=30,
+"""
+trouverSolution("large_free_002_100x100_20_2000.instance", optimizeMakespan = True, maxMakespan = 3500, maxDistance = 100000, timeMax = 11000,
+                    repulsionMin=4, repulsionMax=15,
+                    aleatoireMin=1, aleatoireMax=5,
+                    deterministeMin=30, deterministeMax=75,
+                    poissonMin=5, poissonMax=20,
                     porteeRepulsionMin=2, porteeRepulsionMax=6,
-                    maxSimultanementMin=150, maxSimultanementMax=625,
-                    anticipationMin = 0, anticipationMax=4,
+                    maxSimultanementMin=1000, maxSimultanementMax=2000,
+                    anticipationMin = 0, anticipationMax=10,
                     useShuffle=True, usePriorite=True, useRollback=True,
-                    shuffleMin=30, shuffleMax=100,
-                    rollbackMaxCount = 10, waitBeforeRollback = 200,
-                    probaRecalcul=1.0, penalisation=4,
-                    margeX=15, margeY=15,
-                    debug=False, tailleGroupePrioritesMax=625, stepVideMaxCount = 200)
+                    shuffleMin=55, shuffleMax=85,
+                    rollbackMaxCount = 2, waitBeforeRollback = 200,
+                    probaRecalcul=1.0, penalisation=3,
+                    margeX=40, margeY=40, attiranceEcartement = 50,
+                    debug=True, tailleGroupePrioritesMax=2000, stepVideMaxCount = 200)
+"""
