@@ -21,8 +21,8 @@ import os
 import zipfile
 import shutil
 import glob
-from map import Map
-from progressBar import ProgressBar
+from robotsCGSHOP2021.map import Map
+from robotsCGSHOP2021.progressBar import ProgressBar
 from datetime import datetime
 
 import pickle
